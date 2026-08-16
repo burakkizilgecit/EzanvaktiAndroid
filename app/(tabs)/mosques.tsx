@@ -15,7 +15,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 const { height } = Dimensions.get('window');
 const MOSQUE_IMG = require('../../assets/images/mosque-day.png');
-const MAPS_KEY = 'AIzaSyCsJqytioV-H-SJGWSGZwQOOdZs-HQblWA';
+const MAPS_KEY = 'AIzaSyC__fpddD5_gO__BBU54BIJZWWMU-ACkys';
 
 const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#0B0F1A' }] },

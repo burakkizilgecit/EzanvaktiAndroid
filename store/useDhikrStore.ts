@@ -28,22 +28,27 @@ interface DhikrStore {
   items: DhikrItem[];
   history: DhikrHistory;
   activeCategory: 'tespih' | 'salavat' | 'istigfar' | 'diger';
+  lastDate: string;
   increment: (id: string) => void;
   reset: () => void;
   setCategory: (cat: DhikrStore['activeCategory']) => void;
   getTotalToday: () => number;
   loadData: () => Promise<void>;
+  checkDayRollover: () => void;
   getWeeklyHistory: () => { day: string; total: number }[];
 }
 
 const todayKey = () => new Date().toISOString().split('T')[0];
+const zeroedItems = () => DEFAULT_DHIKR.map(d => ({ ...d, count: 0 }));
 
 export const useDhikrStore = create<DhikrStore>((set, get) => ({
   items: DEFAULT_DHIKR,
   history: {},
   activeCategory: 'tespih',
+  lastDate: todayKey(),
 
   increment: (id) => {
+    get().checkDayRollover();
     const items = get().items.map(item =>
       item.id === id ? { ...item, count: item.count + 1 } : item
     );
@@ -69,10 +74,35 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
   getTotalToday: () => get().items.reduce((sum, i) => sum + i.count, 0),
 
   loadData: async () => {
-    const counts = await loadData<DhikrItem[]>(STORAGE_KEYS.DHIKR_COUNTS);
-    const history = await loadData<DhikrHistory>(STORAGE_KEYS.DHIKR_HISTORY);
-    if (counts) set({ items: counts });
+    const [counts, history, lastDate] = await Promise.all([
+      loadData<DhikrItem[]>(STORAGE_KEYS.DHIKR_COUNTS),
+      loadData<DhikrHistory>(STORAGE_KEYS.DHIKR_HISTORY),
+      loadData<string>(STORAGE_KEYS.DHIKR_LAST_DATE),
+    ]);
     if (history) set({ history });
+
+    const today = todayKey();
+    // A stored date from a previous day means that day is over — its tallies
+    // already live in `history`, so today's counters start fresh instead of
+    // continuing to climb forever.
+    if (counts && lastDate === today) {
+      set({ items: counts, lastDate: today });
+    } else {
+      const items = zeroedItems();
+      set({ items, lastDate: today });
+      saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
+      saveData(STORAGE_KEYS.DHIKR_LAST_DATE, today);
+    }
+  },
+
+  // Catches the day rolling over while the app stays open (no restart/reload)
+  checkDayRollover: () => {
+    const today = todayKey();
+    if (get().lastDate === today) return;
+    const items = zeroedItems();
+    set({ items, lastDate: today });
+    saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
+    saveData(STORAGE_KEYS.DHIKR_LAST_DATE, today);
   },
 
   getWeeklyHistory: () => {

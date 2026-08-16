@@ -1,10 +1,11 @@
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import { ThemeProvider } from '../context/ThemeContext';
 import { useTheme } from '../context/ThemeContext';
 import { requestWidgetUpdate } from 'react-native-android-widget';
+import { renderWidgetForUpdate } from '../widgets/widgetTaskHandler';
 import * as Notifications from 'expo-notifications';
 import { usePrayerStore } from '../store/usePrayerStore';
 import { useDhikrStore } from '../store/useDhikrStore';
@@ -18,6 +19,7 @@ import {
   setupNotificationHandler,
   requestNotificationPermission,
   scheduleAllNotifications,
+  scheduleIslamicDayNotifications,
 } from '../services/notificationService';
 
 function RootLayoutInner() {
@@ -25,6 +27,7 @@ function RootLayoutInner() {
   const { isDark } = useTheme();
   const loadCompletion    = usePrayerStore(s => s.loadCompletion);
   const loadDhikr         = useDhikrStore(s => s.loadData);
+  const checkDhikrDayRollover = useDhikrStore(s => s.checkDayRollover);
   const loadGoals         = useGoalsStore(s => s.loadGoals);
   const loadSettings      = useSettingsStore(s => s.loadSettings);
   const loadNotifications = useNotificationStore(s => s.loadNotifications);
@@ -32,6 +35,7 @@ function RootLayoutInner() {
   const settings          = useSettingsStore(s => s.settings);
   const { load: loadTutorial, completed: tutorialDone, loaded: tutorialLoaded } = useTutorialStore();
   const notifListener     = useRef<Notifications.EventSubscription | null>(null);
+  const appStateRef       = useRef(AppState.currentState);
 
   useEffect(() => {
     loadCompletion();
@@ -45,9 +49,11 @@ function RootLayoutInner() {
     setupNotificationHandler();
     setupNotificationChannel();
 
-    // Handle notification taps
+    // Handle notification taps — dismiss the tapped notification automatically
     notifListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as any;
+      const { notification } = response;
+      Notifications.dismissNotificationAsync(notification.request.identifier).catch(() => {});
+      const data = notification.request.content.data as any;
       if (data?.type === 'prayer' || data?.type === 'early') {
         router.push('/(tabs)/prayer-times' as any);
       } else if (data?.type === 'dhikr') {
@@ -57,10 +63,26 @@ function RootLayoutInner() {
       }
     });
 
+    // Dismiss all notifications when app comes to foreground
+    const appStateSub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        Notifications.dismissAllNotificationsAsync().catch(() => {});
+        checkDhikrDayRollover();
+      }
+      appStateRef.current = nextState;
+    });
+
+    // Also catch the day rolling over while the app stays open in the foreground
+    const dayRolloverInterval = setInterval(checkDhikrDayRollover, 60_000);
+
     // Request permission
     requestNotificationPermission();
 
-    return () => { notifListener.current?.remove(); };
+    return () => {
+      notifListener.current?.remove();
+      appStateSub.remove();
+      clearInterval(dayRolloverInterval);
+    };
   }, []);
 
   // Tutorial: ilk yüklenince tamamlanmamışsa yönlendir
@@ -82,9 +104,22 @@ function RootLayoutInner() {
     if (!location) return;
     scheduleAllNotifications(location.lat, location.lng, settings).catch(() => {});
     if (Platform.OS === 'android') {
-      requestWidgetUpdate({ widgetName: 'PrayerWidget', renderWidget: () => undefined as any }).catch(() => {});
+      requestWidgetUpdate({ widgetName: 'PrayerWidget', renderWidget: () => renderWidgetForUpdate() }).catch(() => {});
     }
   }, [location?.lat, location?.lng, settings.notifications, settings.silentHours, settings.notificationSound, settings.customSoundUri]);
+
+  // Islamic days (kandil/bayram/özel) reminders — independent of prayer-time scheduling
+  useEffect(() => {
+    if (!settings.notifications.islamicDays) {
+      Notifications.getAllScheduledNotificationsAsync().then((all) => {
+        all
+          .filter((n) => n.identifier.startsWith('islamicday_'))
+          .forEach((n) => Notifications.cancelScheduledNotificationAsync(n.identifier));
+      });
+      return;
+    }
+    scheduleIslamicDayNotifications(settings.language ?? 'tr').catch(() => {});
+  }, [settings.notifications.islamicDays, settings.language]);
 
   return (
     <>

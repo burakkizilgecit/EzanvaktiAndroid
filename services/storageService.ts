@@ -17,6 +17,7 @@ export async function removeData(key: string): Promise<void> {
 export const STORAGE_KEYS = {
   DHIKR_COUNTS: 'dhikr_counts',
   DHIKR_HISTORY: 'dhikr_history',
+  DHIKR_LAST_DATE: 'dhikr_last_date',
   DAILY_GOALS: 'daily_goals',
   PRAYER_COMPLETION: 'prayer_completion',
   SETTINGS: 'app_settings',

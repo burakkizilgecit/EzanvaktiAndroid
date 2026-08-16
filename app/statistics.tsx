@@ -6,43 +6,133 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import { usePrayerStore } from '../store/usePrayerStore';
-import { useDhikrStore } from '../store/useDhikrStore';
-import { DAYS_SHORT_TR, GREGORIAN_MONTHS_TR } from '../services/hijriService';
+import { usePrayerStore, PrayerCompletion } from '../store/usePrayerStore';
+import { useDhikrStore, DhikrHistory } from '../store/useDhikrStore';
+import { getDayShort, formatGregorianDate, getGregorianMonths } from '../services/hijriService';
 
-const TABS = ['Haftalık', 'Aylık', 'Yıllık'];
+type StatPeriod = 'week' | 'month' | 'year';
+interface Bucket { key: string; label: string; prayerCount: number; prayerMax: number; dhikrTotal: number; isCurrent: boolean }
+
+function dateKeyOf(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function dayStats(key: string, completion: PrayerCompletion, history: DhikrHistory) {
+  const prayerCount = Object.values(completion[key] ?? {}).filter(Boolean).length;
+  const dhikrTotal = Object.values(history[key] ?? {}).reduce((a: number, b) => a + (b as number), 0);
+  return { prayerCount, dhikrTotal };
+}
+
+function weekBuckets(completion: PrayerCompletion, history: DhikrHistory, language: string): Bucket[] {
+  const today = new Date();
+  const todayStr = dateKeyOf(today);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - i));
+    const key = dateKeyOf(d);
+    const { prayerCount, dhikrTotal } = dayStats(key, completion, history);
+    return { key, label: getDayShort(d, language), prayerCount, prayerMax: 5, dhikrTotal, isCurrent: key === todayStr };
+  });
+}
+
+// Last 5 weeks, bucketed by week — 35 individual daily bars wouldn't fit legibly.
+function monthBuckets(completion: PrayerCompletion, history: DhikrHistory): Bucket[] {
+  const today = new Date();
+  const buckets: Bucket[] = [];
+  for (let w = 4; w >= 0; w--) {
+    const weekEnd = new Date(today);
+    weekEnd.setDate(today.getDate() - w * 7);
+    let prayerCount = 0, dhikrTotal = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekEnd);
+      d.setDate(weekEnd.getDate() - i);
+      const stats = dayStats(dateKeyOf(d), completion, history);
+      prayerCount += stats.prayerCount;
+      dhikrTotal += stats.dhikrTotal;
+    }
+    buckets.push({ key: `w${w}`, label: `${weekEnd.getDate()}/${weekEnd.getMonth() + 1}`, prayerCount, prayerMax: 35, dhikrTotal, isCurrent: w === 0 });
+  }
+  return buckets;
+}
+
+function yearBuckets(completion: PrayerCompletion, history: DhikrHistory, language: string): Bucket[] {
+  const today = new Date();
+  const months = getGregorianMonths(language);
+  const buckets: Bucket[] = [];
+  for (let m = 11; m >= 0; m--) {
+    const target = new Date(today.getFullYear(), today.getMonth() - m, 1);
+    const year = target.getFullYear(), month = target.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    let prayerCount = 0, dhikrTotal = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const stats = dayStats(key, completion, history);
+      prayerCount += stats.prayerCount;
+      dhikrTotal += stats.dhikrTotal;
+    }
+    buckets.push({
+      key: `${year}-${month}`, label: months[month].slice(0, 3),
+      prayerCount, prayerMax: 5 * daysInMonth, dhikrTotal,
+      isCurrent: month === today.getMonth() && year === today.getFullYear(),
+    });
+  }
+  return buckets;
+}
+
+// Active-day count needs real daily granularity, not the coarser month/year buckets.
+function countActiveDays(period: StatPeriod, completion: PrayerCompletion): number {
+  const today = new Date();
+  const span = period === 'week' ? 7 : period === 'month' ? 35 : 365;
+  let count = 0;
+  for (let i = 0; i < span; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    if (Object.values(completion[dateKeyOf(d)] ?? {}).filter(Boolean).length > 0) count++;
+  }
+  return count;
+}
+
+function formatRangeLabel(start: Date, end: Date, language: string): string {
+  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  return sameMonth
+    ? `${start.getDate()} - ${formatGregorianDate(end, language)}`
+    : `${formatGregorianDate(start, language)} - ${formatGregorianDate(end, language)}`;
+}
+
+const PERIOD_KEYS: StatPeriod[] = ['week', 'month', 'year'];
 
 export default function StatisticsScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(0);
   const { completion } = usePrayerStore();
-  const { getWeeklyHistory } = useDhikrStore();
+  const { history: dhikrHistory } = useDhikrStore();
   const now = new Date();
+  const period = PERIOD_KEYS[activeTab];
 
-  const weekHistory = getWeeklyHistory();
+  const buckets = React.useMemo(() => {
+    if (period === 'month') return monthBuckets(completion, dhikrHistory);
+    if (period === 'year')  return yearBuckets(completion, dhikrHistory, language);
+    return weekBuckets(completion, dhikrHistory, language);
+  }, [period, completion, dhikrHistory, language]);
 
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
+  const rangeStart = React.useMemo(() => {
+    if (period === 'year') return new Date(now.getFullYear(), now.getMonth() - 11, 1);
     const d = new Date(now);
-    d.setDate(now.getDate() - (6 - i));
-    const key = d.toISOString().split('T')[0];
-    const dayComp = completion[key] ?? {};
-    const count = Object.values(dayComp).filter(Boolean).length;
-    return { date: d, key, count, label: DAYS_SHORT_TR[d.getDay()] };
-  });
+    d.setDate(now.getDate() - (period === 'month' ? 34 : 6));
+    return d;
+  }, [period]);
+  const weekLabel = formatRangeLabel(rangeStart, now, language);
 
-  const weekStart = weekDays[0].date;
-  const weekEnd = weekDays[6].date;
-  const weekLabel = `${weekStart.getDate()} - ${weekEnd.getDate()} ${GREGORIAN_MONTHS_TR[weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
+  const totalPrayers = buckets.reduce((s, b) => s + b.prayerCount, 0);
+  const maxPossible = buckets.reduce((s, b) => s + b.prayerMax, 0);
+  const prayerRate = maxPossible > 0 ? Math.round((totalPrayers / maxPossible) * 100) : 0;
 
-  const totalPrayers = weekDays.reduce((s, d) => s + d.count, 0);
-  const maxPossible = 7 * 5;
-  const prayerRate = Math.round((totalPrayers / maxPossible) * 100);
-
-  const maxDhikr = Math.max(...weekHistory.map(d => d.total), 1);
-  const totalDhikr = weekHistory.reduce((s, d) => s + d.total, 0);
+  const maxDhikr = Math.max(...buckets.map(b => b.dhikrTotal), 1);
+  const totalDhikr = buckets.reduce((s, b) => s + b.dhikrTotal, 0);
+  const activeDaysCount = countActiveDays(period, completion);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -51,14 +141,14 @@ export default function StatisticsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>İstatistikler</Text>
+        <Text style={styles.headerTitle}>{t('statsTitle')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <View style={styles.tabs}>
-        {TABS.map((t, i) => (
-          <TouchableOpacity key={t} style={[styles.tab, activeTab === i && styles.tabActive]} onPress={() => setActiveTab(i)}>
-            <Text style={[styles.tabLabel, activeTab === i && styles.tabLabelActive]}>{t}</Text>
+        {(['statsTabWeekly', 'statsTabMonthly', 'statsTabYearly'] as const).map((key, i) => (
+          <TouchableOpacity key={key} style={[styles.tab, activeTab === i && styles.tabActive]} onPress={() => setActiveTab(i)}>
+            <Text style={[styles.tabLabel, activeTab === i && styles.tabLabelActive]}>{t(key)}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -75,9 +165,9 @@ export default function StatisticsScreen() {
         <View style={styles.statCard}>
           <View style={styles.statHeader}>
             <View>
-              <Text style={styles.statTitle}>Namaz Kılma Oranı</Text>
+              <Text style={styles.statTitle}>{t('statsPrayerRate')}</Text>
               <Text style={styles.statMain}>%{prayerRate}</Text>
-              <Text style={styles.statSub}>Toplam {totalPrayers}/{maxPossible} vakit</Text>
+              <Text style={styles.statSub}>{t('statsTotalPrayers', { total: totalPrayers, max: maxPossible })}</Text>
             </View>
             <View style={styles.rateBadge}>
               <Text style={styles.rateBadgeText}>%{prayerRate}</Text>
@@ -86,16 +176,15 @@ export default function StatisticsScreen() {
 
           {/* Bar Chart */}
           <View style={styles.barChart}>
-            {weekDays.map((d, i) => {
-              const pct = d.count / 5;
-              const isToday = d.date.toDateString() === now.toDateString();
+            {buckets.map((b) => {
+              const pct = b.prayerMax > 0 ? b.prayerCount / b.prayerMax : 0;
               return (
-                <View key={i} style={styles.barCol}>
-                  <Text style={styles.barPct}>{d.count > 0 ? `${Math.round(pct * 100)}%` : ''}</Text>
+                <View key={b.key} style={styles.barCol}>
+                  <Text style={styles.barPct}>{b.prayerCount > 0 ? `${Math.round(pct * 100)}%` : ''}</Text>
                   <View style={styles.barTrack}>
-                    <View style={[styles.barFill, { height: `${pct * 100}%`, backgroundColor: isToday ? colors.gold : pct === 1 ? colors.green : colors.gold + '88' }]} />
+                    <View style={[styles.barFill, { height: `${pct * 100}%`, backgroundColor: b.isCurrent ? colors.gold : pct === 1 ? colors.green : colors.gold + '88' }]} />
                   </View>
-                  <Text style={[styles.barLabel, isToday && { color: colors.gold }]}>{d.label}</Text>
+                  <Text style={[styles.barLabel, b.isCurrent && { color: colors.gold }]}>{b.label}</Text>
                 </View>
               );
             })}
@@ -104,20 +193,19 @@ export default function StatisticsScreen() {
 
         {/* Dhikr Stats */}
         <View style={styles.statCard}>
-          <Text style={styles.statTitle}>Zikir Adedi</Text>
-          <Text style={styles.statMain}>Toplam {totalDhikr}</Text>
+          <Text style={styles.statTitle}>{t('statsDhikrCount')}</Text>
+          <Text style={styles.statMain}>{t('statsTotalDhikr', { total: totalDhikr })}</Text>
 
           <View style={styles.lineChart}>
-            {weekHistory.map((d, i) => {
-              const pct = d.total / maxDhikr;
-              const isToday = i === 6;
+            {buckets.map((b) => {
+              const pct = b.dhikrTotal / maxDhikr;
               return (
-                <View key={i} style={styles.lineCol}>
-                  <Text style={styles.barPct}>{d.total > 0 ? d.total : ''}</Text>
+                <View key={b.key} style={styles.lineCol}>
+                  <Text style={styles.barPct}>{b.dhikrTotal > 0 ? b.dhikrTotal : ''}</Text>
                   <View style={styles.barTrack}>
-                    <View style={[styles.barFill, { height: `${pct * 100}%`, backgroundColor: isToday ? colors.gold : colors.gold + '66' }]} />
+                    <View style={[styles.barFill, { height: `${pct * 100}%`, backgroundColor: b.isCurrent ? colors.gold : colors.gold + '66' }]} />
                   </View>
-                  <Text style={[styles.barLabel, isToday && { color: colors.gold }]}>{d.day}</Text>
+                  <Text style={[styles.barLabel, b.isCurrent && { color: colors.gold }]}>{b.label}</Text>
                 </View>
               );
             })}
@@ -129,19 +217,19 @@ export default function StatisticsScreen() {
           <View style={styles.summaryCard}>
             <MaterialCommunityIcons name="clock-time-five-outline" size={24} color={colors.gold} />
             <Text style={styles.summaryValue}>{totalPrayers}</Text>
-            <Text style={styles.summaryLabel}>Namaz Kılındı</Text>
+            <Text style={styles.summaryLabel}>{t('statsPrayersDone')}</Text>
           </View>
           <View style={styles.summaryCard}>
             <MaterialCommunityIcons name="circle-outline" size={24} color={colors.gold} />
             <Text style={styles.summaryValue}>{totalDhikr}</Text>
-            <Text style={styles.summaryLabel}>Zikir Yapıldı</Text>
+            <Text style={styles.summaryLabel}>{t('statsDhikrDone')}</Text>
           </View>
           <View style={styles.summaryCard}>
             <MaterialCommunityIcons name="fire" size={24} color={colors.gold} />
             <Text style={styles.summaryValue}>
-              {weekDays.filter(d => d.count > 0).length}
+              {activeDaysCount}
             </Text>
-            <Text style={styles.summaryLabel}>Aktif Gün</Text>
+            <Text style={styles.summaryLabel}>{t('statsActiveDays')}</Text>
           </View>
         </View>
       </ScrollView>

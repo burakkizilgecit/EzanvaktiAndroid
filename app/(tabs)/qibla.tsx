@@ -37,6 +37,7 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   alignedText:    { color: colors.green, fontSize: fs(FONT_SIZE.md), fontWeight: '600' },
   permBanner:     { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginHorizontal: SPACING.md, marginTop: SPACING.md, backgroundColor: 'rgba(200,168,83,0.08)', borderRadius: RADIUS.md, padding: SPACING.md },
   permText:       { color: colors.textSecondary, fontSize: fs(FONT_SIZE.xs), flex: 1 },
+  calibrateText:  { color: colors.textMuted, fontSize: fs(FONT_SIZE.xs), textAlign: 'center', marginTop: SPACING.md, marginHorizontal: SPACING.lg, lineHeight: 18 },
 });
 
 export default function QiblaScreen() {
@@ -279,6 +280,10 @@ export default function QiblaScreen() {
           <Ionicons name="warning-outline" size={18} color={colors.gold} />
           <Text style={styles.permText}>{t('qiblaSensorNote')}</Text>
         </View>
+      )}
+
+      {hasPermission && (
+        <Text style={styles.calibrateText}>{t('qiblaCalibrate')}</Text>
       )}
     </SafeAreaView>
   );

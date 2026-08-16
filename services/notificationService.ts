@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { calculatePrayerTimes } from './prayerService';
 import type { AppSettings } from '../store/useSettingsStore';
+import { ISLAMIC_EVENTS, IslamicEvent, getEventName } from '../data/islamicEvents';
 
 // ── Android channels ───────────────────────────────────────────────────────
 export async function setupNotificationChannel() {
@@ -14,12 +15,17 @@ export async function setupNotificationChannel() {
     bypassDnd: false,
   };
 
+  // Android locks channel sound after first creation — delete and recreate to force correct sound
+  await Notifications.deleteNotificationChannelAsync('prayer_ezan');
   await Notifications.setNotificationChannelAsync('prayer_ezan', {
     ...prayerBase, name: 'Namaz Vakitleri (Ezan)', sound: 'ezan.mp3',
   });
+
+  await Notifications.deleteNotificationChannelAsync('prayer_ilahi');
   await Notifications.setNotificationChannelAsync('prayer_ilahi', {
     ...prayerBase, name: 'Namaz Vakitleri (İlahi)', sound: 'ilahi.mp3',
   });
+
   await Notifications.setNotificationChannelAsync('reminder', {
     name: 'Hatırlatmalar',
     importance: Notifications.AndroidImportance.DEFAULT,
@@ -121,12 +127,16 @@ export async function scheduleAllNotifications(
           body: msg.body,
           sound: Platform.OS === 'ios' ? `${settings.notificationSound ?? 'ezan'}.mp3` : true,
           data: { type: 'prayer', prayer },
+        },
+        trigger: {
+          date: pTime,
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
           ...(Platform.OS === 'android' && { channelId: prayerChannelId }),
         },
-        trigger: { date: pTime, type: Notifications.SchedulableTriggerInputTypes.DATE },
       });
 
-      // Early reminder (10 min before)
+      // Early reminder (10 min before) — always the phone's default notification
+      // sound, never the ezan/ilahi prayer-time sound.
       if (settings.notifications.earlyReminder) {
         const earlyTime = new Date(pTime.getTime() - 10 * 60 * 1000);
         if (earlyTime.getTime() > now) {
@@ -138,16 +148,19 @@ export async function scheduleAllNotifications(
               body: earlyMsg.body,
               sound: true,
               data: { type: 'early', prayer },
+            },
+            trigger: {
+              date: earlyTime,
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
               ...(Platform.OS === 'android' && { channelId: 'reminder' }),
             },
-            trigger: { date: earlyTime, type: Notifications.SchedulableTriggerInputTypes.DATE },
           });
         }
       }
     }
   }
 
-  // Daily dhikr reminder at 21:00
+  // Daily dhikr reminder at 21:00 — default notification sound
   if (settings.notifications.dhikrReminder) {
     await Notifications.scheduleNotificationAsync({
       identifier: 'dhikr_daily',
@@ -156,11 +169,57 @@ export async function scheduleAllNotifications(
         body: 'Bugün zikir yapmayı unutmayın. Kalpler ancak Allah\'ı zikirle huzur bulur.',
         sound: true,
         data: { type: 'dhikr' },
-        ...(Platform.OS === 'android' && { channelId: 'reminder' }),
       },
       trigger: {
         hour: 21, minute: 0,
         type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        ...(Platform.OS === 'android' && { channelId: 'reminder' }),
+      },
+    });
+  }
+}
+
+// ── Islamic days (kandil / bayram / özel) ───────────────────────────────────
+function islamicDayBody(event: IslamicEvent, language: string): string {
+  const name = getEventName(event, language);
+  if (event.type === 'kandil') {
+    return language === 'tr' ? `Bu gece ${name}. Hayırlı kandiller!` : `Tonight is ${name}. Blessed night!`;
+  }
+  if (event.type === 'bayram') {
+    return language === 'tr' ? `Bugün ${name}. Bayramınız mübarek olsun!` : `Today is ${name}. Blessed holiday!`;
+  }
+  return language === 'tr' ? `Bugün ${name}.` : `Today is ${name}.`;
+}
+
+// Schedules a reminder for every upcoming entry in ISLAMIC_EVENTS, always on
+// the plain "reminder" channel (phone's default sound) — never ezan/ilahi,
+// which are reserved for the 5 daily prayer-time notifications.
+export async function scheduleIslamicDayNotifications(language: string) {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  for (const n of scheduled) {
+    if (n.identifier.startsWith('islamicday_')) {
+      await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+  }
+
+  const now = new Date();
+  for (const event of ISLAMIC_EVENTS) {
+    const [y, m, d] = event.date.split('-').map(Number);
+    const notifDate = new Date(y, m - 1, d, 8, 0, 0);
+    if (notifDate <= now) continue;
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: `islamicday_${event.id}`,
+      content: {
+        title: `🌙 ${getEventName(event, language)}`,
+        body: islamicDayBody(event, language),
+        sound: true,
+        data: { type: 'islamicDay' },
+      },
+      trigger: {
+        date: notifDate,
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        ...(Platform.OS === 'android' && { channelId: 'reminder' }),
       },
     });
   }
