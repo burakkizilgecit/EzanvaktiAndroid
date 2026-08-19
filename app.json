@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.islamicibadet.app",
-      "versionCode": 41,
+      "versionCode": 43,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyC__fpddD5_gO__BBU54BIJZWWMU-ACkys"
@@ -63,12 +63,6 @@
             "./assets/sounds/ezan.mp3",
             "./assets/sounds/ilahi.mp3"
           ]
-        }
-      ],
-      [
-        "expo-media-library",
-        {
-          "photosPermission": "Paylaşım kartlarını galeriye kaydetmek için izin gereklidir."
         }
       ],
       [

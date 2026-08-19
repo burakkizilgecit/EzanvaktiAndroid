@@ -6,7 +6,6 @@ import {
   Modal, FlatList, Share, Switch,
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
-import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import ShareCard from '../../components/ShareCard';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -181,11 +180,6 @@ export default function HomeScreen() {
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Paylaş' });
-      } else {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status === 'granted') {
-          await MediaLibrary.saveToLibraryAsync(uri);
-        }
       }
     } catch {}
     setShareData(null);
