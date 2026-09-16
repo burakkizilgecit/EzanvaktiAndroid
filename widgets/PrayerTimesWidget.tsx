@@ -1,5 +1,6 @@
+"use no memo";
 import React from 'react';
-import { FlexWidget, TextWidget, ImageWidget } from 'react-native-android-widget';
+import { FlexWidget, TextWidget } from 'react-native-android-widget';
 
 interface Props {
   nextPrayer: string;
@@ -30,18 +31,10 @@ export function PrayerTimesWidget({ nextPrayer, nextTime, countdown, city }: Pro
     >
       {/* Header */}
       <FlexWidget style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <FlexWidget style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <ImageWidget
-            image={require('../assets/images/icon.png')}
-            imageWidth={20}
-            imageHeight={20}
-            style={{ borderRadius: 4 }}
-          />
-          <TextWidget
-            text=" İBADET SAATİ"
-            style={{ color: GOLD, fontSize: 11, fontWeight: 'bold' }}
-          />
-        </FlexWidget>
+        <TextWidget
+          text="🕌 EZAN VAKTİ"
+          style={{ color: GOLD, fontSize: 11, fontWeight: 'bold' }}
+        />
         <TextWidget
           text={city}
           style={{ color: MUTED, fontSize: 10 }}

@@ -1,15 +1,15 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  StatusBar, Modal, ScrollView, ActivityIndicator,
+  StatusBar, Modal, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import * as Speech from 'expo-speech';
+import { useFocusEffect } from 'expo-router';
+import { SpeechController } from '../../services/speechController';
 import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
-import { DUAS, DUA_CATEGORIES, type Dua } from '../../data/duas';
+import { DUAS, DUA_CATEGORIES, getDuaTitle, getDuaTranslation, type Dua } from '../../data/duas';
 import { useTranslation } from '../../i18n';
 
 const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create({
@@ -17,11 +17,13 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   header: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerTitle: { color: colors.textPrimary, fontSize: fs(FONT_SIZE.xl), fontWeight: '700' },
   headerSub: { color: colors.textMuted, fontSize: fs(FONT_SIZE.sm) },
-  categories: { paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, gap: SPACING.sm },
-  catBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 2, borderRadius: RADIUS.full, backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1 },
+  categoryScroll: { flexGrow: 0, flexShrink: 0 },
+  duaList: { flex: 1 },
+  categories: { alignItems: 'center', paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, gap: SPACING.sm, flexDirection: 'row' },
+  catBtn: { flexShrink: 0, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs + 2, borderRadius: RADIUS.full, backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1 },
   catBtnActive: { backgroundColor: colors.gold, borderColor: colors.gold },
-  catLabel: { color: colors.textSecondary, fontSize: fs(FONT_SIZE.sm), fontWeight: '500' },
-  catLabelActive: { color: colors.background, fontWeight: '700' },
+  catLabel: { color: colors.textSecondary, fontSize: fs(FONT_SIZE.sm), fontWeight: '700' },
+  catLabelActive: { color: colors.background },
   duaCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACING.md },
   duaCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   duaIconBox: { width: 44, height: 44, borderRadius: RADIUS.sm, backgroundColor: 'rgba(200,168,83,0.12)', alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md },
@@ -48,51 +50,48 @@ export default function DuasScreen() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedDua, setSelectedDua] = useState<Dua | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentLineIndex, setCurrentLineIndex] = useState(0);
+  const speech = useRef(new SpeechController());
+  const pausedRef = useRef(false);
   const isPlayingRef = useRef(false);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
 
   const filtered = activeCategory === 'all' ? DUAS : DUAS.filter(d => d.category === activeCategory);
 
-  const playFullDua = async () => {
-    if (isPlayingRef.current) {
-      isPlayingRef.current = false;
-      await Speech.stop();
+  useFocusEffect(React.useCallback(() => {
+    const controller = speech.current;
+    return () => {
+      isPlayingRef.current = false; pausedRef.current = false;
       setIsPlaying(false);
-      setCurrentLineIndex(0);
+      void controller.stop().catch(console.warn);
+    };
+  }, []));
+
+  const playFullDua = () => {
+    if (!selectedDua) return;
+    if (isPlayingRef.current) {
+      isPlayingRef.current = false; pausedRef.current = true; setIsPlaying(false);
+      void speech.current.pause().catch(console.warn);
       return;
     }
-
-    if (!selectedDua) return;
-
-    isPlayingRef.current = true;
-    setIsPlaying(true);
-    setCurrentLineIndex(0);
-
-    try {
-      const arabicLines = selectedDua.arabic.split('\n').filter(line => line.trim());
-      const turkishLines = selectedDua.turkish.split('\n').filter(line => line.trim());
-
-      for (let i = 0; i < arabicLines.length && isPlayingRef.current; i++) {
-        setCurrentLineIndex(i);
-        await Speech.speak(arabicLines[i], { language: 'ar' });
-      }
-
-      for (let i = 0; i < turkishLines.length && isPlayingRef.current; i++) {
-        setCurrentLineIndex(arabicLines.length + i);
-        await Speech.speak(turkishLines[i], { language: 'tr' });
-      }
-
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-      setCurrentLineIndex(0);
-    } catch (error) {
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-      setCurrentLineIndex(0);
+    isPlayingRef.current = true; setIsPlaying(true);
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      void speech.current.resume();
+      return;
     }
+    const parts = [{text: selectedDua.arabic, language: 'ar'}];
+    if (language !== 'ar') parts.push({text: getDuaTranslation(selectedDua, language), language});
+    void speech.current.play(parts, () => {
+      isPlayingRef.current = false; pausedRef.current = false; setIsPlaying(false);
+    });
+  };
+
+  const closeDua = () => {
+    isPlayingRef.current = false; pausedRef.current = false;
+    setIsPlaying(false); setSelectedDua(null);
+    void speech.current.stop().catch(console.warn);
   };
 
   return (
@@ -105,21 +104,24 @@ export default function DuasScreen() {
       </View>
 
       {/* Category Filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
+      <ScrollView horizontal style={styles.categoryScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
         {DUA_CATEGORIES.map(cat => (
           <TouchableOpacity
             key={cat.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeCategory === cat.id }}
             style={[styles.catBtn, activeCategory === cat.id && styles.catBtnActive]}
             onPress={() => setActiveCategory(cat.id)}
           >
-            <Text style={[styles.catLabel, activeCategory === cat.id && styles.catLabelActive]}>
-              {cat.label}
+            <Text numberOfLines={1} style={[styles.catLabel, activeCategory === cat.id && styles.catLabelActive]}>
+              {t(cat.labelKey as any)}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
       <FlatList
+        style={styles.duaList}
         data={filtered}
         keyExtractor={item => item.id}
         contentContainerStyle={{ padding: SPACING.md }}
@@ -131,7 +133,7 @@ export default function DuasScreen() {
                 <MaterialCommunityIcons name="hands-pray" size={22} color={colors.gold} />
               </View>
               <View style={styles.duaInfo}>
-                <Text style={styles.duaTitle}>{item.title}</Text>
+                <Text style={styles.duaTitle}>{getDuaTitle(item, language)}</Text>
                 <Text style={styles.duaSource}>{item.source}</Text>
               </View>
             </View>
@@ -142,29 +144,26 @@ export default function DuasScreen() {
       />
 
       {/* Dua Detail Modal */}
-      <Modal visible={!!selectedDua} animationType="slide" transparent>
+      <Modal visible={!!selectedDua} animationType="slide" transparent onRequestClose={closeDua}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{selectedDua?.title}</Text>
+              <Text style={styles.modalTitle}>{selectedDua ? getDuaTitle(selectedDua, language) : ''}</Text>
               <View style={styles.headerActions}>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={isPlaying ? t('audioPause') : t('audioResume')}
                   onPress={playFullDua}
                   style={[styles.playBtn, isPlaying && styles.playBtnActive]}
                 >
                   <Ionicons
                     name={isPlaying ? 'pause' : 'play'}
                     size={18}
-                    color={isPlaying ? colors.background : colors.gold}
+                    color={colors.background}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => {
-                    setIsPlaying(false);
-                    Speech.stop();
-                    setCurrentLineIndex(0);
-                    setSelectedDua(null);
-                  }}
+                  onPress={closeDua}
                   style={styles.closeBtn}
                 >
                   <Ionicons name="close" size={22} color={colors.textSecondary} />
@@ -176,7 +175,7 @@ export default function DuasScreen() {
                 <Text style={styles.arabicText}>{selectedDua?.arabic}</Text>
               </View>
               <View style={styles.divider} />
-              <Text style={styles.turkishText}>{selectedDua?.turkish}</Text>
+              <Text style={styles.turkishText}>{selectedDua ? getDuaTranslation(selectedDua, language) : ''}</Text>
               <View style={styles.sourceBox}>
                 <MaterialCommunityIcons name="book-open-variant" size={16} color={colors.gold} />
                 <Text style={styles.sourceText}>{selectedDua?.source}</Text>
@@ -188,4 +187,3 @@ export default function DuasScreen() {
     </SafeAreaView>
   );
 }
-

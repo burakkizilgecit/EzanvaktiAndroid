@@ -6,8 +6,8 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import { ISLAMIC_EVENTS, IslamicEvent } from '../data/islamicEvents';
-import { GREGORIAN_MONTHS_TR } from '../services/hijriService';
+import { ISLAMIC_EVENTS, IslamicEvent, getEventName, getEventDescription } from '../data/islamicEvents';
+import { formatGregorianDate } from '../services/hijriService';
 
 type FilterKey = 'all' | 'bayram' | 'kandil' | 'ozel';
 const FILTER_KEYS: FilterKey[] = ['all', 'bayram', 'kandil', 'ozel'];
@@ -25,7 +25,7 @@ const EVENT_ICONS: Record<IslamicEvent['type'], string> = {
 };
 
 export default function UpcomingEventsScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
@@ -80,9 +80,9 @@ export default function UpcomingEventsScreen() {
                 <MaterialCommunityIcons name={EVENT_ICONS[item.type] as any} size={28} color={color} />
               </View>
               <View style={styles.eventInfo}>
-                <Text style={styles.eventName}>{item.name}</Text>
-                <Text style={styles.eventDate}>{d.getDate()} {GREGORIAN_MONTHS_TR[d.getMonth()]} {d.getFullYear()}</Text>
-                {item.description && <Text style={styles.eventDesc}>{item.description}</Text>}
+                <Text style={styles.eventName}>{getEventName(item, language)}</Text>
+                <Text style={styles.eventDate}>{formatGregorianDate(d, language)}</Text>
+                {getEventDescription(item, language) && <Text style={styles.eventDesc}>{getEventDescription(item, language)}</Text>}
               </View>
               <View style={[styles.daysBadge, { borderColor: color }]}>
                 <Text style={[styles.daysNum, { color }]}>{item.daysLeft}</Text>

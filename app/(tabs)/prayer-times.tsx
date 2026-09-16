@@ -1,3 +1,6 @@
+import { useNow } from '../../hooks/use-now';
+import { LocationNotice } from '../../components/LocationNotice';
+import { localDateKey } from '../../services/dateService';
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -5,9 +8,8 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { usePrayerStore } from '../../store/usePrayerStore';
-import { formatPrayerTime, getNextPrayer } from '../../services/prayerService';
+import { formatPrayerTime, getNextPrayer , calculatePrayerTimes } from '../../services/prayerService';
 import { formatGregorianDate } from '../../services/hijriService';
-import { calculatePrayerTimes } from '../../services/prayerService';
 import { useTranslation } from '../../i18n';
 
 type RekatType = 'farz' | 'sunnet' | 'vacip';
@@ -134,14 +136,16 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
 export default function PrayerTimesScreen() {
   const { colors, fs } = useTheme();
   const { prayerTimes, location, togglePrayer, getTodayCompletion } = usePrayerStore();
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [chosenDate, setSelectedDate] = useState<Date | null>(null);
   const [shownTimes, setShownTimes] = useState(prayerTimes);
   const [infoModal, setInfoModal] = useState<{ key: string; info: PrayerInfo } | null>(null);
   const { t, language } = useTranslation();
-  const now = new Date();
-  const todayKey = now.toISOString().split('T')[0];
+  const now = useNow();
+  const today = localDateKey(now);
+  const selectedDate = React.useMemo(() => chosenDate ?? new Date(today + 'T12:00:00'), [chosenDate, today]);
+  const todayKey = localDateKey(now);
   const completion = getTodayCompletion();
-  const nextPrayer = prayerTimes ? getNextPrayer(prayerTimes) : null;
+  const nextPrayer = prayerTimes && location ? getNextPrayer(prayerTimes, location.lat, location.lng) : null;
   const PRAYER_LABEL_KEYS: Record<string, string> = {
     fajr: 'prayerFajr', sunrise: 'prayerSunrise', dhuhr: 'prayerDhuhr',
     asr: 'prayerAsr', maghrib: 'prayerMaghrib', isha: 'prayerIsha',
@@ -151,7 +155,7 @@ export default function PrayerTimesScreen() {
   const isToday = selectedDate.toDateString() === now.toDateString();
 
   useEffect(() => {
-    if (!location) return;
+    if (!location) { setShownTimes(null); return; }
     setShownTimes(calculatePrayerTimes(location.lat, location.lng, selectedDate));
   }, [selectedDate, location]);
 
@@ -172,6 +176,7 @@ export default function PrayerTimesScreen() {
         <Text style={styles.headerCity}>{location?.city ?? '...'}</Text>
       </View>
 
+      <LocationNotice />
       {/* Date Navigation */}
       <View style={styles.dateNav}>
         <TouchableOpacity onPress={() => changeDay(-1)} style={styles.navBtn}>

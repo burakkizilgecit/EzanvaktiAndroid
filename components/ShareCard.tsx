@@ -31,7 +31,7 @@ const ShareCard = forwardRef<View, Props>(({ data }, ref) => {
               <MaterialCommunityIcons name="format-quote-open" size={16} color={COLORS.gold} />
               <Text style={styles.typeLabel}>GÜNÜN HADİSİ</Text>
             </View>
-            <Text style={styles.mainText}>"{data.text}"</Text>
+            <Text style={styles.mainText}>&quot;{data.text}&quot;</Text>
             <Text style={styles.sourceText}>{data.source}</Text>
           </>
         )}
@@ -53,11 +53,11 @@ const ShareCard = forwardRef<View, Props>(({ data }, ref) => {
           <>
             <View style={styles.typeRow}>
               <MaterialCommunityIcons name="book-open-variant" size={16} color={COLORS.gold} />
-              <Text style={styles.typeLabel}>KUR'AN-I KERİM</Text>
+              <Text style={styles.typeLabel}>KUR&apos;AN-I KERİM</Text>
             </View>
             <Text style={styles.titleText}>{data.surah} · {data.verseNo}. Ayet</Text>
             <Text style={styles.arabicText}>{data.arabic}</Text>
-            <Text style={styles.mainText}>"{data.turkish}"</Text>
+            <Text style={styles.mainText}>&quot;{data.turkish}&quot;</Text>
           </>
         )}
 

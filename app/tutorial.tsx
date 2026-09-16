@@ -10,7 +10,7 @@ import { COLORS, SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTutorialStore } from '../store/useTutorialStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 type SlideType = 'regular' | 'theme-picker' | 'font-picker';
 
@@ -90,7 +90,7 @@ const SLIDES: Slide[] = [
 export default function TutorialScreen() {
   const router = useRouter();
   const { complete } = useTutorialStore();
-  const { updateSettings, settings } = useSettingsStore();
+  const { updateSettings } = useSettingsStore();
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedTheme, setSelectedTheme] = useState<'dark' | 'light' | null>(null);
   const [selectedFont, setSelectedFont] = useState<'normal' | 'large' | 'xlarge' | null>(null);

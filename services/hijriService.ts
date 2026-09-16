@@ -21,8 +21,22 @@ export const GREGORIAN_MONTHS_TR = GREGORIAN_MONTHS.tr;
 export const DAYS_TR = DAYS.tr;
 export const DAYS_SHORT_TR = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
 
+const DAYS_SHORT: Record<string, string[]> = {
+  tr: ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'],
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  ar: ['أحد', 'إث', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت'],
+};
+
 export function getDayName(date: Date, lang = 'tr'): string {
   return (DAYS[lang] ?? DAYS.tr)[date.getDay()];
+}
+
+export function getDayShort(date: Date, lang = 'tr'): string {
+  return (DAYS_SHORT[lang] ?? DAYS_SHORT.tr)[date.getDay()];
+}
+
+export function getGregorianMonths(lang = 'tr'): string[] {
+  return GREGORIAN_MONTHS[lang] ?? GREGORIAN_MONTHS.tr;
 }
 
 function toJulianDay(year: number, month: number, day: number): number {

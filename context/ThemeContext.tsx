@@ -1,3 +1,4 @@
+import { useColorScheme } from 'react-native';
 import React, { createContext, useContext, useMemo } from 'react';
 import { DARK_COLORS, LIGHT_COLORS } from '../constants/theme';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -18,7 +19,8 @@ const ThemeContext = createContext<ThemeCtx>({
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme    = useSettingsStore(s => s.settings.theme    ?? 'dark');
   const fontSize = useSettingsStore(s => s.settings.fontSize ?? 'normal');
-  const isDark   = theme === 'dark';
+  const systemTheme = useColorScheme();
+  const isDark = theme === 'system' ? systemTheme !== 'light' : theme === 'dark';
   const colors   = isDark ? DARK_COLORS : LIGHT_COLORS;
   const fontScale = fontSize === 'xlarge' ? 1.45 : fontSize === 'large' ? 1.2 : 1.0;
   const fs = useMemo(() => (base: number) => Math.round(base * fontScale), [fontScale]);

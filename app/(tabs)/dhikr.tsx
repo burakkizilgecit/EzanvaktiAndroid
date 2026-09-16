@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   StatusBar, Animated, Modal, Dimensions,
@@ -127,15 +127,15 @@ const CAT_KEY_MAP: Record<CategoryId, string> = {
 export default function DhikrScreen() {
   const { colors, fs } = useTheme();
   const { t } = useTranslation();
-  const { items, activeCategory, increment, reset, setCategory, getTotalToday, loadData, getWeeklyHistory } = useDhikrStore();
+  const { items, activeCategory, increment, reset, setCategory, getTotalToday, getWeeklyHistory } = useDhikrStore();
   const [showHistory, setShowHistory] = useState(false);
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
 
-  useEffect(() => { loadData(); }, []);
 
   const filteredItems = items.filter(i => i.category === activeCategory);
   const total = getTotalToday();
   const weekHistory = getWeeklyHistory();
+  const weekTotal = weekHistory.reduce((s, w) => s + w.total, 0);
 
   const handleIncrement = async (id: string) => {
     increment(id);
@@ -192,7 +192,7 @@ export default function DhikrScreen() {
         <View style={styles.weekSection}>
           <View style={styles.weekHeader}>
             <Text style={styles.weekTitle}>{t('dhikrWeekly')}</Text>
-            <Text style={styles.weekTotal}>{t('dhikrTotal')}: {total}</Text>
+            <Text style={styles.weekTotal}>{t('dhikrTotal')}: {weekTotal}</Text>
           </View>
           <View style={styles.weekBars}>
             {weekHistory.map((w, i) => {

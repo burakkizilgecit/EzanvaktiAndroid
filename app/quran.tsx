@@ -6,20 +6,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { SURAHS, type SurahMeta } from '../data/quranData';
 
-const JUZ_STARTS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30];
 
 export default function QuranScreen() {
-  const { t } = useTranslation();
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'sureler' | 'favoriler'>('sureler');
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -66,7 +62,7 @@ export default function QuranScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerArabic}>القرآن الكريم</Text>
-          <Text style={styles.headerTitle}>Kur'an-ı Kerim</Text>
+          <Text style={styles.headerTitle}>Kur&apos;an-ı Kerim</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>

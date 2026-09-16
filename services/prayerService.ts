@@ -1,3 +1,4 @@
+import { localDateKey } from './dateService';
 import { Coordinates, CalculationMethod, PrayerTimes, Qibla } from 'adhan';
 
 export interface PrayerTimesData {
@@ -27,10 +28,15 @@ export function calculatePrayerTimes(lat: number, lng: number, date: Date = new 
 
 export function getNextPrayer(
   times: PrayerTimesData,
-  lat = 41.0082,
-  lng = 28.9784,
+  lat: number,
+  lng: number,
+  now: Date = new Date(),
 ): { key: string; name: string; time: Date } {
-  const nowMs = Date.now();
+  // A suspended screen may pass yesterday's cached times after midnight.
+  if (localDateKey(new Date(times.dhuhr)) !== localDateKey(now)) {
+    times = calculatePrayerTimes(lat, lng, now);
+  }
+  const nowMs = now.getTime();
 
   const prayers = [
     { key: 'fajr',    name: 'Sabah',  time: new Date(times.fajr) },
@@ -44,14 +50,14 @@ export function getNextPrayer(
   const next = prayers.find(p => p.time.getTime() > nowMs);
   if (next) return next;
 
-  const tomorrow = new Date();
+  const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowTimes = calculatePrayerTimes(lat, lng, tomorrow);
   return { key: 'fajr', name: 'Sabah', time: new Date(tomorrowTimes.fajr) };
 }
 
-export function getCountdown(targetTime: Date | string | number): string {
-  const diff = new Date(targetTime).getTime() - Date.now();
+export function getCountdown(targetTime: Date | string | number, nowMs = Date.now()): string {
+  const diff = new Date(targetTime).getTime() - nowMs;
   if (diff <= 0) return '00:00:00';
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);

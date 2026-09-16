@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SPACING, RADIUS, FONT_SIZE, SHADOWS } from '../../constants/theme';
+import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from '../../i18n';
 

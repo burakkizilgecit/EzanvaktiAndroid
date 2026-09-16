@@ -20,11 +20,12 @@ export interface AppSettings {
   customSoundUri?: string;
   customSoundName?: string;
   language: Language;
-  theme?: 'dark' | 'light';
+  theme?: 'dark' | 'light' | 'system';
   fontSize?: 'normal' | 'large' | 'xlarge';
+  notifiedEventIds: string[];
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     prayerTimes: true,
     earlyReminder: true,
@@ -40,11 +41,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   language: 'tr',
   theme: 'dark',
   fontSize: 'normal',
+  notifiedEventIds: [],
 };
 
 interface SettingsStore {
   settings: AppSettings;
   toggleNotification: (key: keyof AppSettings['notifications']) => void;
+  toggleEventNotification: (eventId: string) => void;
   updateSettings: (partial: Partial<AppSettings>) => void;
   loadSettings: () => Promise<void>;
 }
@@ -62,6 +65,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     saveData(STORAGE_KEYS.SETTINGS, updated);
   },
 
+  toggleEventNotification: (eventId) => {
+    const settings = get().settings;
+    const ids = settings.notifiedEventIds ?? [];
+    const updated = {
+      ...settings,
+      notifiedEventIds: ids.includes(eventId) ? ids.filter(id => id !== eventId) : [...ids, eventId],
+    };
+    set({ settings: updated });
+    saveData(STORAGE_KEYS.SETTINGS, updated);
+  },
+
   updateSettings: (partial) => {
     const updated = { ...get().settings, ...partial };
     set({ settings: updated });
@@ -70,6 +84,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   loadSettings: async () => {
     const data = await loadData<AppSettings>(STORAGE_KEYS.SETTINGS);
-    if (data) set({ settings: data });
+    set({ settings: normalizeSettings(data) });
   },
 }));
+
+export function normalizeSettings(data: Partial<AppSettings> | null): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS, ...data,
+    notifications: { ...DEFAULT_SETTINGS.notifications, ...data?.notifications },
+    silentHours: { ...DEFAULT_SETTINGS.silentHours, ...data?.silentHours },
+  };
+}

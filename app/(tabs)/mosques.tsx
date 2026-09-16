@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   StatusBar, Linking, ActivityIndicator, Animated,
@@ -67,17 +67,11 @@ function fmtDistance(m: number): string {
 }
 
 async function googleRequest(url: string): Promise<any[]> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (json.status === 'REQUEST_DENIED')
-      throw new Error(json.error_message ?? 'API anahtarı geçersiz.');
-    return json.results ?? [];
-  } catch (e: any) {
-    if (e.message?.includes('API') || e.message?.includes('anahtar')) throw e;
-    return [];
-  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Mosque request failed');
+  const json = await res.json();
+  if (json.status !== 'OK' && json.status !== 'ZERO_RESULTS') throw new Error('Mosque request failed');
+  return json.results ?? [];
 }
 
 function toMosque(p: any, userLat: number, userLng: number): Mosque {
@@ -237,7 +231,7 @@ export default function MosquesScreen() {
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const filteredMosques = allMosques.filter(m => m.distance <= maxDist);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!MAPS_KEY) {
       setErrorMsg('Google Maps API anahtarı yapılandırılmamış.');
       setLoading(false);
@@ -249,14 +243,19 @@ export default function MosquesScreen() {
     Animated.spring(slideAnim, { toValue: 120, useNativeDriver: true }).start();
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      let lat = 41.0082, lng = 28.9784;
+      let lat: number, lng: number;
       if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
+        if (!loc) { setUserLoc(null); setCityName(''); setAllMosques([]); setErrorMsg(t('locationUnavailable')); return; }
         lat = loc.coords.latitude; lng = loc.coords.longitude;
-        const geo = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+        const geo = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }).catch(() => []);
         setCityName([geo[0]?.district, geo[0]?.city].filter(Boolean).join(', ') || 'Konumunuz');
       } else {
-        setCityName('İstanbul (varsayılan)');
+        setCityName('');
+        setUserLoc(null);
+        setAllMosques([]);
+        setErrorMsg(t('locationUnavailable'));
+        return;
       }
       setUserLoc({ lat, lng });
       mapRef.current?.animateToRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.025, longitudeDelta: 0.025 }, 800);
@@ -269,9 +268,9 @@ export default function MosquesScreen() {
       setLoading(false);
       setFetching(false);
     }
-  };
+  }, [slideAnim, t]);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const selectMosque = (m: Mosque) => {
     const isSame = selected?.id === m.id;
@@ -307,14 +306,14 @@ export default function MosquesScreen() {
       />
 
       {/* Map */}
-      <MapView
+      {userLoc ? <MapView
         ref={mapRef}
         style={styles.map}
         customMapStyle={DARK_MAP_STYLE}
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}
-        initialRegion={{ latitude: userLoc?.lat ?? 41.0082, longitude: userLoc?.lng ?? 28.9784, latitudeDelta: 0.025, longitudeDelta: 0.025 }}
+        initialRegion={{ latitude: userLoc.lat, longitude: userLoc.lng, latitudeDelta: 0.025, longitudeDelta: 0.025 }}
         onPress={deselectMosque}
       >
         {userLoc && (
@@ -330,7 +329,7 @@ export default function MosquesScreen() {
             </View>
           </Marker>
         ))}
-      </MapView>
+      </MapView> : <View style={styles.map} />}
 
       {/* Header */}
       <SafeAreaView edges={['top']} style={styles.headerWrap} pointerEvents="box-none">

@@ -1,3 +1,5 @@
+import { useNow } from '../hooks/use-now';
+import { localDateKey } from '../services/dateService';
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,7 +16,7 @@ type StatPeriod = 'week' | 'month' | 'year';
 interface Bucket { key: string; label: string; prayerCount: number; prayerMax: number; dhikrTotal: number; isCurrent: boolean }
 
 function dateKeyOf(d: Date): string {
-  return d.toISOString().split('T')[0];
+  return localDateKey(d);
 }
 
 function dayStats(key: string, completion: PrayerCompletion, history: DhikrHistory) {
@@ -23,34 +25,48 @@ function dayStats(key: string, completion: PrayerCompletion, history: DhikrHisto
   return { prayerCount, dhikrTotal };
 }
 
-function weekBuckets(completion: PrayerCompletion, history: DhikrHistory, language: string): Bucket[] {
-  const today = new Date();
-  const todayStr = dateKeyOf(today);
+// Monday of the calendar week containing `d`.
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function weekBuckets(weekAnchor: Date, completion: PrayerCompletion, history: DhikrHistory, language: string, todayStr: string): Bucket[] {
+  const monday = getMonday(weekAnchor);
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (6 - i));
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
     const key = dateKeyOf(d);
     const { prayerCount, dhikrTotal } = dayStats(key, completion, history);
     return { key, label: getDayShort(d, language), prayerCount, prayerMax: 5, dhikrTotal, isCurrent: key === todayStr };
   });
 }
 
-// Last 5 weeks, bucketed by week — 35 individual daily bars wouldn't fit legibly.
-function monthBuckets(completion: PrayerCompletion, history: DhikrHistory): Bucket[] {
-  const today = new Date();
+// Splits the calendar month (1st to last day) into Monday-Sunday chunks; the
+// first/last chunk is partial when the month doesn't start/end on a Monday/Sunday.
+function monthWeekBuckets(year: number, month: number, completion: PrayerCompletion, history: DhikrHistory, todayStr: string): Bucket[] {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
   const buckets: Bucket[] = [];
-  for (let w = 4; w >= 0; w--) {
-    const weekEnd = new Date(today);
-    weekEnd.setDate(today.getDate() - w * 7);
-    let prayerCount = 0, dhikrTotal = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekEnd);
-      d.setDate(weekEnd.getDate() - i);
-      const stats = dayStats(dateKeyOf(d), completion, history);
+  let day = 1;
+  while (day <= daysInMonth) {
+    const date = new Date(year, month, day);
+    const mondayIndex = (date.getDay() + 6) % 7; // 0=Mon..6=Sun
+    const span = Math.min(7 - mondayIndex, daysInMonth - day + 1);
+    let prayerCount = 0, dhikrTotal = 0, isCurrent = false;
+    for (let i = 0; i < span; i++) {
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day + i).padStart(2, '0')}`;
+      const stats = dayStats(key, completion, history);
       prayerCount += stats.prayerCount;
       dhikrTotal += stats.dhikrTotal;
+      if (key === todayStr) isCurrent = true;
     }
-    buckets.push({ key: `w${w}`, label: `${weekEnd.getDate()}/${weekEnd.getMonth() + 1}`, prayerCount, prayerMax: 35, dhikrTotal, isCurrent: w === 0 });
+    const endDay = day + span - 1;
+    buckets.push({ key: `d${day}`, label: span > 1 ? `${day}-${endDay}` : `${day}`, prayerCount, prayerMax: span * 5, dhikrTotal, isCurrent });
+    day += span;
   }
   return buckets;
 }
@@ -79,15 +95,12 @@ function yearBuckets(completion: PrayerCompletion, history: DhikrHistory, langua
   return buckets;
 }
 
-// Active-day count needs real daily granularity, not the coarser month/year buckets.
-function countActiveDays(period: StatPeriod, completion: PrayerCompletion): number {
-  const today = new Date();
-  const span = period === 'week' ? 7 : period === 'month' ? 35 : 365;
+function countActiveDaysInRange(start: Date, end: Date, completion: PrayerCompletion): number {
   let count = 0;
-  for (let i = 0; i < span; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
+  const d = new Date(start);
+  while (d <= end) {
     if (Object.values(completion[dateKeyOf(d)] ?? {}).filter(Boolean).length > 0) count++;
+    d.setDate(d.getDate() + 1);
   }
   return count;
 }
@@ -109,22 +122,43 @@ export default function StatisticsScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const { completion } = usePrayerStore();
   const { history: dhikrHistory } = useDhikrStore();
-  const now = new Date();
+  const clock = useNow();
+  const day = localDateKey(clock);
+  const now = React.useMemo(() => new Date(day + 'T12:00:00'), [day]);
   const period = PERIOD_KEYS[activeTab];
 
-  const buckets = React.useMemo(() => {
-    if (period === 'month') return monthBuckets(completion, dhikrHistory);
-    if (period === 'year')  return yearBuckets(completion, dhikrHistory, language);
-    return weekBuckets(completion, dhikrHistory, language);
-  }, [period, completion, dhikrHistory, language]);
+  const [weekAnchor, setWeekAnchor] = useState(() => new Date());
+  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+
+  const weekIsCurrent = dateKeyOf(getMonday(weekAnchor)) === dateKeyOf(getMonday(now));
+  const monthIsCurrent = monthAnchor.getFullYear() === now.getFullYear() && monthAnchor.getMonth() === now.getMonth();
+
+  const goPrevWeek = () => setWeekAnchor(d => { const nd = new Date(d); nd.setDate(d.getDate() - 7); return nd; });
+  const goNextWeek = () => { if (weekIsCurrent) return; setWeekAnchor(d => { const nd = new Date(d); nd.setDate(d.getDate() + 7); return nd; }); };
+  const goPrevMonth = () => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  const goNextMonth = () => { if (monthIsCurrent) return; setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() + 1, 1)); };
+
+  const buckets = (() => {
+    if (period === 'month') return monthWeekBuckets(monthAnchor.getFullYear(), monthAnchor.getMonth(), completion, dhikrHistory, day);
+    if (period === 'year') return yearBuckets(completion, dhikrHistory, language);
+    return weekBuckets(weekAnchor, completion, dhikrHistory, language, day);
+  })();
 
   const rangeStart = React.useMemo(() => {
     if (period === 'year') return new Date(now.getFullYear(), now.getMonth() - 11, 1);
-    const d = new Date(now);
-    d.setDate(now.getDate() - (period === 'month' ? 34 : 6));
+    if (period === 'month') return new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
+    return getMonday(weekAnchor);
+  }, [period, now, weekAnchor, monthAnchor]);
+  const rangeEnd = React.useMemo(() => {
+    if (period === 'year') return now;
+    if (period === 'month') return new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 0);
+    const d = new Date(rangeStart);
+    d.setDate(d.getDate() + 6);
     return d;
-  }, [period]);
-  const weekLabel = formatRangeLabel(rangeStart, now, language);
+  }, [period, now, monthAnchor, rangeStart]);
+  const rangeLabel = period === 'month'
+    ? `${getGregorianMonths(language)[monthAnchor.getMonth()]} ${monthAnchor.getFullYear()}`
+    : formatRangeLabel(rangeStart, rangeEnd, language);
 
   const totalPrayers = buckets.reduce((s, b) => s + b.prayerCount, 0);
   const maxPossible = buckets.reduce((s, b) => s + b.prayerMax, 0);
@@ -132,7 +166,10 @@ export default function StatisticsScreen() {
 
   const maxDhikr = Math.max(...buckets.map(b => b.dhikrTotal), 1);
   const totalDhikr = buckets.reduce((s, b) => s + b.dhikrTotal, 0);
-  const activeDaysCount = countActiveDays(period, completion);
+  const activeDaysCount = countActiveDaysInRange(rangeStart, rangeEnd, completion);
+
+  const canGoNext = period === 'week' ? !weekIsCurrent : period === 'month' ? !monthIsCurrent : false;
+  const showNav = period !== 'year';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -154,11 +191,19 @@ export default function StatisticsScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: SPACING.md }}>
-        {/* Week range */}
+        {/* Range nav */}
         <View style={styles.rangeRow}>
-          <Ionicons name="chevron-back" size={20} color={colors.gold} />
-          <Text style={styles.rangeText}>{weekLabel}</Text>
-          <Ionicons name="chevron-forward" size={20} color={colors.gold} />
+          {showNav ? (
+            <TouchableOpacity onPress={period === 'week' ? goPrevWeek : goPrevMonth} hitSlop={8}>
+              <Ionicons name="chevron-back" size={20} color={colors.gold} />
+            </TouchableOpacity>
+          ) : <View style={{ width: 20 }} />}
+          <Text style={styles.rangeText}>{rangeLabel}</Text>
+          {showNav ? (
+            <TouchableOpacity onPress={period === 'week' ? goNextWeek : goNextMonth} disabled={!canGoNext} hitSlop={8}>
+              <Ionicons name="chevron-forward" size={20} color={canGoNext ? colors.gold : colors.cardBorder} />
+            </TouchableOpacity>
+          ) : <View style={{ width: 20 }} />}
         </View>
 
         {/* Prayer rate */}

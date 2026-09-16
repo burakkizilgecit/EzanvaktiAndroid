@@ -1,3 +1,4 @@
+import { localDateKey } from '../services/dateService';
 import { create } from 'zustand';
 import { saveData, loadData, STORAGE_KEYS } from '../services/storageService';
 
@@ -38,7 +39,7 @@ interface DhikrStore {
   getWeeklyHistory: () => { day: string; total: number }[];
 }
 
-const todayKey = () => new Date().toISOString().split('T')[0];
+const todayKey = () => localDateKey();
 const zeroedItems = () => DEFAULT_DHIKR.map(d => ({ ...d, count: 0 }));
 
 export const useDhikrStore = create<DhikrStore>((set, get) => ({
@@ -56,8 +57,7 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
     const key = todayKey();
     const history = get().history;
     const dayHistory = history[key] ?? {};
-    const item = items.find(i => i.id === id);
-    const updated = { ...history, [key]: { ...dayHistory, [id]: item?.count ?? 0 } };
+    const updated = { ...history, [key]: { ...dayHistory, [id]: (dayHistory[id] ?? 0) + 1 } };
     set({ history: updated });
     saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
     saveData(STORAGE_KEYS.DHIKR_HISTORY, updated);
@@ -71,7 +71,7 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
 
   setCategory: (cat) => set({ activeCategory: cat }),
 
-  getTotalToday: () => get().items.reduce((sum, i) => sum + i.count, 0),
+  getTotalToday: () => Object.values(get().history[todayKey()] ?? {}).reduce((sum, count) => sum + count, 0),
 
   loadData: async () => {
     const [counts, history, lastDate] = await Promise.all([
@@ -111,7 +111,7 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
-      const key = d.toISOString().split('T')[0];
+      const key = localDateKey(d);
       const dayData = history[key] ?? {};
       const total = Object.values(dayData).reduce((a, b) => a + b, 0);
       return { day: days[d.getDay() === 0 ? 6 : d.getDay() - 1], total };

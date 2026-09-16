@@ -1,3 +1,8 @@
+import { useSettingsStore } from './useSettingsStore';
+import { tr } from '../i18n/tr';
+import { en } from '../i18n/en';
+import { ar } from '../i18n/ar';
+import { localDateKey } from '../services/dateService';
 import { create } from 'zustand';
 import { saveData, loadData } from '../services/storageService';
 
@@ -21,7 +26,6 @@ interface NotificationStore {
 }
 
 const KEY = 'app_notifications';
-const DAILY_KEY = 'last_daily_gen';
 
 const save = (notifications: AppNotification[]) =>
   saveData(KEY, notifications.slice(0, 50)); // keep last 50
@@ -61,27 +65,22 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   getUnreadCount: () => get().notifications.filter(n => !n.read).length,
 
   generateDailyIfNeeded: (hadithText, duaTitle) => {
-    const todayKey = new Date().toISOString().split('T')[0];
-    loadData<string>(DAILY_KEY).then(lastDay => {
-      if (lastDay === todayKey) return; // already generated today
-      saveData(DAILY_KEY, todayKey);
-
-      const { addNotification } = get();
-      addNotification({
-        type: 'hadith',
-        title: '📖 Günün Hadisi',
-        body: hadithText.length > 100 ? hadithText.slice(0, 97) + '...' : hadithText,
-      });
-      addNotification({
-        type: 'dua',
-        title: '🤲 Günün Duası',
-        body: duaTitle,
-      });
-      addNotification({
-        type: 'prayer',
-        title: '🕌 Namaz Vakitleri',
-        body: 'Bugünün namaz vakitleri güncellendi. Vakitleri kaçırmayın.',
-      });
-    });
+    const date = localDateKey();
+    const { settings } = useSettingsStore.getState();
+    const t = { tr, en, ar }[settings.language] ?? tr;
+    const items: AppNotification[] = [];
+    for (const type of ['hadith', 'dua'] as const) {
+      const enabled = type === 'hadith' ? settings.notifications.dailyHadith : settings.notifications.dailyDua;
+      const id = `daily_${type}_${date}`;
+      if (enabled && !get().notifications.some(n => n.id === id)) {
+        items.push({ id, type, title: type === 'hadith' ? t.notifDailyHadith : t.notifDailyDua,
+          body: type === 'hadith' ? hadithText : duaTitle, timestamp: Date.now(), read: false });
+      }
+    }
+    if (items.length) {
+      const updated = [...items, ...get().notifications].slice(0, 50);
+      set({ notifications: updated });
+      save(updated).catch(console.warn);
+    }
   },
 }));

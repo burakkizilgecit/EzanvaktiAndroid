@@ -1,123 +1,108 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { FONT_SIZE, SHADOWS } from '../constants/theme';
-import { useTheme } from '../context/ThemeContext';
-import { useTranslation } from '../i18n';
+import React from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useTheme } from "../context/ThemeContext";
+import { HOME_COLORS } from "../constants/homeTheme";
+import { useTranslation } from "../i18n";
 
-interface TabConfig {
-  route: string;
-  labelKey: string;
-  iconName: { active: string; inactive: string; lib: 'ion' | 'mci' };
-}
-
-const TABS: TabConfig[] = [
-  { route: 'index',        labelKey: 'tabHome',   iconName: { active: 'home',         inactive: 'home-outline',              lib: 'ion' } },
-  { route: 'prayer-times', labelKey: 'tabPrayer', iconName: { active: 'clock-time-five', inactive: 'clock-time-five-outline', lib: 'mci' } },
-  { route: 'qibla',        labelKey: 'tabQibla',  iconName: { active: 'compass',       inactive: 'compass-outline',           lib: 'ion' } },
-  { route: 'dhikr',        labelKey: 'tabDhikr',  iconName: { active: 'circle-outline',inactive: 'circle-outline',           lib: 'mci' } },
-  { route: 'mosques',      labelKey: 'tabMosques',iconName: { active: 'mosque',        inactive: 'mosque',                    lib: 'mci' } },
-  { route: 'more',         labelKey: 'tabMenu',   iconName: { active: 'apps',          inactive: 'apps-outline',              lib: 'ion' } },
-];
-
-function TabItem({ tab, isActive, onPress, label }: { tab: TabConfig; isActive: boolean; onPress: () => void; label: string }) {
-  const { colors } = useTheme();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const dotAnim   = useRef(new Animated.Value(isActive ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(dotAnim, { toValue: isActive ? 1 : 0, useNativeDriver: true, tension: 120, friction: 8 }),
-      Animated.sequence([
-        Animated.timing(scaleAnim, { toValue: isActive ? 1.12 : 1, duration: 120, useNativeDriver: true }),
-        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 200 }),
-      ]),
-    ]).start();
-  }, [isActive]);
-
-  const iconColor = isActive ? colors.tabActive : colors.tabInactive;
-  const iconName  = isActive ? tab.iconName.active : tab.iconName.inactive;
-
-  return (
-    <TouchableOpacity style={styles.tab} onPress={onPress} activeOpacity={0.7}>
-      <Animated.View style={[
-        styles.iconWrap,
-        { transform: [{ scale: scaleAnim }] },
-        isActive && { backgroundColor: colors.goldGlow },
-      ]}>
-        {tab.iconName.lib === 'mci'
-          ? <MaterialCommunityIcons name={iconName as any} size={22} color={iconColor} />
-          : <Ionicons name={iconName as any} size={22} color={iconColor} />
-        }
-      </Animated.View>
-      <Text style={[styles.label, { color: colors.tabInactive }, isActive && { color: colors.tabActive, fontWeight: '700' }]} numberOfLines={1}>{label}</Text>
-      <Animated.View style={[styles.dot, { backgroundColor: colors.tabActive, opacity: dotAnim, transform: [{ scaleX: dotAnim }] }]} />
-    </TouchableOpacity>
-  );
-}
-
+const TABS = [
+  { route: "index", label: "tabHome", icon: "home-outline" },
+  { route: "prayer-times", label: "tabPrayer", icon: "time-outline" },
+  { route: "qibla", label: "tabQibla", icon: "compass-outline" },
+  { route: "dhikr", label: "tabDhikr", icon: "circle-outline" },
+  { route: "mosques", label: "tabMosques", icon: "mosque" },
+  { route: "more", label: "tabMenu", icon: "menu-outline" },
+] as const;
 export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const { isDark, fs } = useTheme();
+  const colors = isDark ? HOME_COLORS.dark : HOME_COLORS.light;
+  const { t, language } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const { t } = useTranslation();
-  const visibleRoutes = state.routes.filter(r => TABS.some(t => t.route === r.name));
-
+  const focused = state.routes[state.index].name;
   return (
-    <View style={[styles.container, { backgroundColor: colors.tabBar, paddingBottom: Math.max(insets.bottom, 8) }]}>
-      <View style={styles.bar}>
-        {visibleRoutes.map((route) => {
-          const tab = TABS.find(t => t.route === route.name);
-          if (!tab) return null;
-          const isActive = state.routes[state.index].name === route.name;
-          return (
-            <TabItem
-              key={route.key}
-              tab={tab}
-              label={t(tab.labelKey as any)}
-              isActive={isActive}
-              onPress={() => { if (!isActive) navigation.navigate(route.name); }}
-            />
-          );
-        })}
-      </View>
+    <View
+      style={[
+        styles.bar,
+        {
+          flexDirection: language === "ar" ? "row-reverse" : "row",
+          backgroundColor: colors.tabBar,
+          borderColor: colors.cardBorder,
+          paddingBottom: Math.max(8, insets.bottom),
+        },
+      ]}
+    >
+      {TABS.map((tab) => {
+        const route = state.routes.find((r) => r.name === tab.route);
+        if (!route) return null;
+        const active =
+          focused === tab.route ||
+          (tab.route === "more" && ["duas"].includes(focused));
+        const color = active ? colors.gold : colors.tabInactive;
+        return (
+          <TouchableOpacity
+            key={tab.route}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={t(tab.label)}
+            style={styles.tab}
+            onLongPress={() =>
+              navigation.emit({ type: "tabLongPress", target: route.key })
+            }
+            onPress={() => {
+              const event = navigation.emit({
+                type: "tabPress",
+                target: route.key,
+                canPreventDefault: true,
+              });
+              if (focused !== tab.route && !event.defaultPrevented)
+                navigation.navigate(route.name);
+            }}
+          >
+            <View
+              style={[
+                styles.icon,
+                active && { backgroundColor: colors.goldGlow },
+              ]}
+            >
+              {(tab.route === "dhikr" || tab.route === "mosques") ? (
+                <MaterialCommunityIcons
+                  name={tab.route === "mosques" ? "mosque" : "circle-outline"}
+                  size={24}
+                  color={color}
+                />
+              ) : (
+                <Ionicons
+                  name={tab.icon as keyof typeof Ionicons.glyphMap}
+                  size={24}
+                  color={color}
+                />
+              )}
+            </View>
+            <Text style={{ fontSize: fs(10), color, textAlign: "center" }}>
+              {t(tab.label)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
-
 const styles = StyleSheet.create({
-  container: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(30,42,64,0.8)',
-    ...SHADOWS.md,
-  },
-  bar: {
-    flexDirection: 'row',
-    paddingTop: 10,
-  },
+  bar: { borderTopWidth: 1, paddingTop: 6 },
   tab: {
     flex: 1,
-    alignItems: 'center',
+    minHeight: 54,
+    alignItems: "center",
     gap: 3,
-    paddingBottom: 4,
+    paddingHorizontal: 2,
   },
-  iconWrap: {
-    width: 40,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
+  icon: {
+    width: 44,
+    height: 32,
     borderRadius: 12,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '500',
-    letterSpacing: 0.2,
-  },
-  dot: {
-    width: 16,
-    height: 3,
-    borderRadius: 2,
-    marginTop: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

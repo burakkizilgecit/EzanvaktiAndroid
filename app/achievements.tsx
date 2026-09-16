@@ -1,5 +1,6 @@
+import { localDateKey } from '../services/dateService';
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Modal, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -17,7 +18,7 @@ function prayerStreak(completion: PrayerCompletion, prayer: string): number {
   for (let i = 0; i < 365; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    const key = d.toISOString().split('T')[0];
+    const key = localDateKey(d);
     const day = completion[key] as any;
     if (day?.[prayer]) streak++;
     else break;
@@ -31,7 +32,7 @@ function anyPrayerStreak(completion: PrayerCompletion): number {
   for (let i = 0; i < 365; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    const key = d.toISOString().split('T')[0];
+    const key = localDateKey(d);
     const day = completion[key];
     const hasAny = day && Object.values(day).some(Boolean);
     if (hasAny) streak++;
@@ -77,7 +78,7 @@ function fridayStreak(completion: PrayerCompletion): number {
     const dayOfWeek = today.getDay(); // 0=Sun
     const daysToLastFriday = ((dayOfWeek + 7 - 5) % 7) + w * 7;
     friday.setDate(today.getDate() - daysToLastFriday);
-    const key = friday.toISOString().split('T')[0];
+    const key = localDateKey(friday);
     const day = completion[key];
     if (day && Object.values(day).some(Boolean)) count++;
     else break;

@@ -1,0 +1,41 @@
+import { DARK_COLORS, LIGHT_COLORS } from "./theme";
+// Scoped to the home surface and navigation; unrelated screens keep their theme.
+export const HOME_COLORS = {
+  light: {
+    ...LIGHT_COLORS,
+    background: "#FFFDF8",
+    surface: "#FFFFFF",
+    surfaceElevated: "#F9E9CB",
+    cardBg: "#FFFFFF",
+    cardBorder: "#E7DFD2",
+    cardBorderActive: "#CCB98F",
+    gold: "#94630C",
+    goldLight: "#D4A017",
+    goldGlow: "#FAF1DE",
+    textPrimary: "#1F2937",
+    textSecondary: "#64605A",
+    textMuted: "#706A61",
+    tabBar: "#FFFDF8",
+    tabInactive: "#736D64",
+    tabActive: "#94630C",
+  },
+  dark: {
+    ...DARK_COLORS,
+    background: "#081320",
+    surface: "#111827",
+    surfaceElevated: "#162235",
+    cardBg: "#111C2C",
+    cardBorder: "#304158",
+    cardBorderActive: "#50617A",
+    gold: "#E7B34E",
+    goldLight: "#F4C566",
+    goldGlow: "#302C22",
+    textPrimary: "#F8FAFC",
+    textSecondary: "#B5C0D2",
+    textMuted: "#94A3B8",
+    tabBar: "#0D1828",
+    tabInactive: "#A6B3C7",
+    tabActive: "#E7B34E",
+  },
+};
+export const HOME_LAYOUT = { inset: 16, gap: 12, radius: 22, touch: 48 };

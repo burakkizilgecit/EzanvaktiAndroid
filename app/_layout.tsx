@@ -1,126 +1,113 @@
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
-import { Platform, AppState, AppStateStatus } from 'react-native';
-import { ThemeProvider } from '../context/ThemeContext';
-import { useTheme } from '../context/ThemeContext';
-import { requestWidgetUpdate } from 'react-native-android-widget';
-import { renderWidgetForUpdate } from '../widgets/widgetTaskHandler';
-import * as Notifications from 'expo-notifications';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useState } from 'react';
+import { AppState, View, Text, ActivityIndicator, Button } from 'react-native';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { syncNativeWidgets } from '../widgets/syncNativeWidgets';
+import { isNotificationPreview } from '../services/notificationRuntime';
 import { usePrayerStore } from '../store/usePrayerStore';
 import { useDhikrStore } from '../store/useDhikrStore';
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { useTutorialStore } from '../store/useTutorialStore';
-import {
-  setupNotificationChannel,
-  setupCustomNotificationChannel,
-  setupNotificationHandler,
-  requestNotificationPermission,
-  scheduleAllNotifications,
-  scheduleIslamicDayNotifications,
-} from '../services/notificationService';
+import { addNotificationResponseListener, setupNotificationChannel, setupNotificationHandler, requestNotificationPermission, scheduleAllNotifications } from '../services/notificationService';
+import { registerNotificationRenewal } from '../services/backgroundNotifications';
+import { localDateKey } from '../services/dateService';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootLayoutInner() {
   const router = useRouter();
-  const { isDark } = useTheme();
-  const loadCompletion    = usePrayerStore(s => s.loadCompletion);
-  const loadDhikr         = useDhikrStore(s => s.loadData);
-  const checkDhikrDayRollover = useDhikrStore(s => s.checkDayRollover);
-  const loadGoals         = useGoalsStore(s => s.loadGoals);
-  const loadSettings      = useSettingsStore(s => s.loadSettings);
-  const loadNotifications = useNotificationStore(s => s.loadNotifications);
-  const location          = usePrayerStore(s => s.location);
-  const settings          = useSettingsStore(s => s.settings);
-  const { load: loadTutorial, completed: tutorialDone, loaded: tutorialLoaded } = useTutorialStore();
-  const notifListener     = useRef<Notifications.EventSubscription | null>(null);
-  const appStateRef       = useRef(AppState.currentState);
+  const { isDark, colors } = useTheme();
+  const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [refresh, setRefresh] = useState(0);
+  const location = usePrayerStore(s => s.location);
+  const locationLoading = usePrayerStore(s => s.locationLoading);
+  const settings = useSettingsStore(s => s.settings);
+  const { completed: tutorialDone, loaded: tutorialLoaded } = useTutorialStore();
 
   useEffect(() => {
-    loadCompletion();
-    loadDhikr();
-    loadGoals();
-    loadSettings();
-    loadNotifications();
-    loadTutorial();
-
-    // Set up notification infrastructure
-    setupNotificationHandler();
-    setupNotificationChannel();
-
-    // Handle notification taps — dismiss the tapped notification automatically
-    notifListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const { notification } = response;
-      Notifications.dismissNotificationAsync(notification.request.identifier).catch(() => {});
-      const data = notification.request.content.data as any;
-      if (data?.type === 'prayer' || data?.type === 'early') {
-        router.push('/(tabs)/prayer-times' as any);
-      } else if (data?.type === 'dhikr') {
-        router.push('/(tabs)/dhikr' as any);
-      } else if (data?.type === 'dua') {
-        router.push('/(tabs)/duas' as any);
-      }
-    });
-
-    // Dismiss all notifications when app comes to foreground
-    const appStateSub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
-        Notifications.dismissAllNotificationsAsync().catch(() => {});
-        checkDhikrDayRollover();
-      }
-      appStateRef.current = nextState;
-    });
-
-    // Also catch the day rolling over while the app stays open in the foreground
-    const dayRolloverInterval = setInterval(checkDhikrDayRollover, 60_000);
-
-    // Request permission
-    requestNotificationPermission();
-
-    return () => {
-      notifListener.current?.remove();
-      appStateSub.remove();
-      clearInterval(dayRolloverInterval);
-    };
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  // Tutorial: ilk yüklenince tamamlanmamışsa yönlendir
   useEffect(() => {
-    if (tutorialLoaded && !tutorialDone) {
-      router.replace('/tutorial' as any);
-    }
-  }, [tutorialLoaded, tutorialDone]);
+    let active = true;
+    setBootError(false);
+    setupNotificationHandler();
+    Promise.all([
+      usePrayerStore.getState().loadCompletion(), usePrayerStore.getState().loadLocation(), useDhikrStore.getState().loadData(),
+      useGoalsStore.getState().loadGoals(), useSettingsStore.getState().loadSettings(),
+      useNotificationStore.getState().loadNotifications(), useTutorialStore.getState().load(),
+    ]).then(async () => {
+      if (!active) return;
+      setReady(true);
+      usePrayerStore.getState().refreshLocation().catch(console.warn);
+      try {
+        await setupNotificationChannel();
+        await requestNotificationPermission();
+        await registerNotificationRenewal();
+      } catch (error) { console.warn('Notification initialization failed', error); }
+      if (active) setRefresh(n => n + 1);
+    }).catch(error => { console.warn('Data loading failed', error); if (active) setBootError(true); });
+    return () => { active = false; };
+  }, [attempt]);
 
-  // Restore custom notification channel on startup if user had one saved
   useEffect(() => {
-    if (settings.notificationSound === 'custom' && settings.customSoundUri) {
-      setupCustomNotificationChannel(settings.customSoundUri).catch(() => {});
-    }
-  }, [settings.customSoundUri]);
+    if (!ready) return;
+    let day = localDateKey();
+    let offset = new Date().getTimezoneOffset();
+    const updateDay = () => {
+      usePrayerStore.getState().refreshPrayerTimes();
+      useDhikrStore.getState().checkDayRollover();
+      useGoalsStore.getState().checkDayRollover();
+      if (day !== localDateKey() || offset !== new Date().getTimezoneOffset()) {
+        day = localDateKey(); offset = new Date().getTimezoneOffset();
+        setRefresh(n => n + 1);
+      }
+    };
+    const listener = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        updateDay();
+        usePrayerStore.getState().refreshLocation().catch(console.warn);
+        setRefresh(n => n + 1);
+      }
+    });
+    const interval = setInterval(updateDay, 1000);
+    return () => { listener.remove(); clearInterval(interval); };
+  }, [ready]);
 
-  // Reschedule notifications + update widget when location or settings change
   useEffect(() => {
-    if (!location) return;
-    scheduleAllNotifications(location.lat, location.lng, settings).catch(() => {});
-    if (Platform.OS === 'android') {
-      requestWidgetUpdate({ widgetName: 'PrayerWidget', renderWidget: () => renderWidgetForUpdate() }).catch(() => {});
-    }
-  }, [location?.lat, location?.lng, settings.notifications, settings.silentHours, settings.notificationSound, settings.customSoundUri]);
+    const listener = addNotificationResponseListener(response => {
+      const type = response.notification.request.content.data?.type;
+      if (type === 'prayer' || type === 'early') router.push('/(tabs)/prayer-times');
+      else if (type === 'dhikr') router.push('/(tabs)/dhikr');
+      else if (type === 'dua') router.push('/(tabs)/duas');
+      else if (type === 'islamicDay') router.push('/upcoming-events');
+      else router.push('/(tabs)');
+    });
+    return () => listener?.remove();
+  }, [router]);
 
-  // Islamic days (kandil/bayram/özel) reminders — independent of prayer-time scheduling
   useEffect(() => {
-    if (!settings.notifications.islamicDays) {
-      Notifications.getAllScheduledNotificationsAsync().then((all) => {
-        all
-          .filter((n) => n.identifier.startsWith('islamicday_'))
-          .forEach((n) => Notifications.cancelScheduledNotificationAsync(n.identifier));
-      });
-      return;
-    }
-    scheduleIslamicDayNotifications(settings.language ?? 'tr').catch(() => {});
-  }, [settings.notifications.islamicDays, settings.language]);
+    if (ready && tutorialLoaded && !tutorialDone) router.replace('/tutorial');
+  }, [ready, tutorialLoaded, tutorialDone, router]);
 
+  useEffect(() => {
+    if (!ready) return;
+    if (locationLoading) return;
+    scheduleAllNotifications(location?.lat ?? null, location?.lng ?? null, settings).catch(error => console.warn('Notification scheduling failed', error));
+    syncNativeWidgets(location, settings).catch(error => console.warn('Widget update failed', error));
+  }, [ready, location, locationLoading, settings, refresh]);
+
+  if (!ready) return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+      {bootError ? <><Text style={{ color: colors.textPrimary }}>Veriler yüklenemedi.</Text><Button title="Tekrar Dene" onPress={() => setAttempt(n => n + 1)} /></> : <ActivityIndicator color={colors.gold} />}
+    </View>
+  );
   return (
     <>
       <Stack screenOptions={{ headerShown: false }}>
@@ -137,6 +124,11 @@ function RootLayoutInner() {
         <Stack.Screen name="tutorial" options={{ gestureEnabled: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
+      {isNotificationPreview && <View style={{ backgroundColor: colors.background, padding: 12 }}><Text style={{ color: colors.textPrimary, textAlign: 'center', fontSize: 12 }}>{settings.language === 'ar'
+        ? 'معاينة Expo Go: التنبيهات وعناصر الشاشة الرئيسية تحتاج إلى نسخة Android مثبتة.'
+        : settings.language === 'en'
+          ? 'Expo Go preview: reminders and home screen widgets require an installed Android build.'
+          : 'Expo Go önizlemesi: Hatırlatmalar ve ana ekran widgetları için Android uygulama derlemesi gerekir.'}</Text></View>}
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
   );

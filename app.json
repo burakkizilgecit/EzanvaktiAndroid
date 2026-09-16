@@ -7,10 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "islamicibadet",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "android": {
       "package": "com.islamicibadet.app",
-      "versionCode": 43,
+      "versionCode": 47,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyC__fpddD5_gO__BBU54BIJZWWMU-ACkys"
@@ -28,14 +27,8 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.USE_EXACT_ALARM",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.USE_EXACT_ALARM"
       ],
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "ios": {
@@ -83,32 +76,22 @@
           "android": {
             "buildFeatures": {
               "buildConfig": true
-            }
+            },
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
           }
         }
       ],
       "./plugins/withBuildConfig",
       "./plugins/withRemovePermissions",
-      [
-        "react-native-android-widget",
-        {
-          "widgets": [
-            {
-              "name": "PrayerWidget",
-              "label": "Ezan Vakti — Namaz Vakti",
-              "description": "Sıradaki namaz vaktini ana ekranınızda görün",
-              "previewImage": "./assets/images/icon.png",
-              "minWidth": "250dp",
-              "minHeight": "110dp",
-              "minResizeWidth": "180dp",
-              "minResizeHeight": "110dp",
-              "targetCellWidth": 4,
-              "targetCellHeight": 2,
-              "updatePeriodMillis": 1800000
-            }
-          ]
-        }
-      ]
+      "./plugins/withRingtoneQuery",
+      "expo-background-task",
+      "./plugins/withPrayerWidgets",
+      "expo-font",
+      "expo-image",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

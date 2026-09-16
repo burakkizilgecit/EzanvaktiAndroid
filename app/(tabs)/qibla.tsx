@@ -1,3 +1,4 @@
+import { LocationNotice } from '../../components/LocationNotice';
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, StatusBar, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -62,15 +63,19 @@ export default function QiblaScreen() {
   const arrowRotate   = arrowAnim.interpolate({   inputRange: [0, 360], outputRange: ['0deg', '360deg'], extrapolate: 'extend' });
 
   useEffect(() => {
-    const angle = calculateQiblaDirection(location?.lat ?? 41.0082, location?.lng ?? 28.9784);
+    if (!location) { setIsAligned(false); return; }
+    const angle = calculateQiblaDirection(location.lat, location.lng);
     setQiblaAngle(angle);
     qiblaRef.current = angle;
   }, [location]);
 
   useEffect(() => {
+    if (!location) return;
+    let disposed = false;
     let sub: ReturnType<typeof Magnetometer.addListener> | undefined;
     (async () => {
       const { granted } = await Magnetometer.requestPermissionsAsync();
+      if (disposed) return;
       setHasPerm(granted);
       if (!granted) return;
 
@@ -94,11 +99,13 @@ export default function QiblaScreen() {
         Animated.spring(compassAnim, { toValue: compassAcc.current, useNativeDriver: true, tension: 55, friction: 11 }).start();
         Animated.spring(arrowAnim,   { toValue: arrowAcc.current,   useNativeDriver: true, tension: 55, friction: 11 }).start();
       });
-    })();
-    return () => sub?.remove();
-  }, []);
+    })().catch(() => { if (!disposed) setHasPerm(false); });
+    return () => { disposed = true; sub?.remove(); };
+  }, [location, arrowAnim, compassAnim]);
 
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
+
+  if (!location) return <SafeAreaView style={styles.container} edges={['top']}><LocationNotice /></SafeAreaView>;
 
   const cardinals = [
     { label: t('qiblaDirN'), angle: 0   },

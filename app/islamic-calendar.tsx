@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ToastAndroid, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import { ISLAMIC_EVENTS, IslamicEvent } from '../data/islamicEvents';
-import { GREGORIAN_MONTHS_TR } from '../services/hijriService';
+import { ISLAMIC_EVENTS, IslamicEvent, getEventName, getEventDescription } from '../data/islamicEvents';
+import { getGregorianMonths, formatGregorianDate } from '../services/hijriService';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { requestNotificationPermission } from '../services/notificationService';
 
 const CALENDAR_TAB_KEYS = ['calendarTabYearly', 'calendarTabUpcoming'] as const;
 
@@ -24,13 +26,27 @@ const EVENT_ICONS: Record<IslamicEvent['type'], string> = {
 };
 
 export default function IslamicCalendarScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(0);
   const [selectedYear] = useState(new Date().getFullYear());
   const now = new Date();
+  const notifiedEventIds = useSettingsStore(s => s.settings.notifiedEventIds ?? []);
+  const toggleEventNotification = useSettingsStore(s => s.toggleEventNotification);
+
+  const handleToggleEventNotification = async (event: IslamicEvent) => {
+    const willEnable = !notifiedEventIds.includes(event.id);
+    if (willEnable) {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+    }
+    toggleEventNotification(event.id);
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(willEnable ? t('islamicDayNotifyOn') : t('islamicDayNotifyOff'), ToastAndroid.SHORT);
+    }
+  };
 
   const upcomingEvents = ISLAMIC_EVENTS
     .map(e => {
@@ -41,7 +57,7 @@ export default function IslamicCalendarScreen() {
     .filter(e => e.daysLeft >= 0)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  const monthGroups = GREGORIAN_MONTHS_TR.map((month, i) => {
+  const monthGroups = getGregorianMonths(language).map((month, i) => {
     const events = ISLAMIC_EVENTS.filter(e => {
       const d = new Date(e.date);
       return d.getFullYear() === selectedYear && d.getMonth() === i;
@@ -56,7 +72,7 @@ export default function IslamicCalendarScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Dini Günler Takvimi</Text>
+        <Text style={styles.headerTitle}>{t('calendarTitle')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -72,9 +88,7 @@ export default function IslamicCalendarScreen() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: SPACING.md }}>
           {/* Year selector */}
           <View style={styles.yearRow}>
-            <Ionicons name="chevron-back" size={20} color={colors.gold} />
             <Text style={styles.yearText}>{selectedYear}</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.gold} />
           </View>
 
           {monthGroups.map(({ month, events }) => (
@@ -93,12 +107,21 @@ export default function IslamicCalendarScreen() {
                     <View style={styles.eventInfo}>
                       <View style={styles.eventTitleRow}>
                         <MaterialCommunityIcons name={EVENT_ICONS[event.type] as any} size={16} color={color} />
-                        <Text style={styles.eventName}>{event.name}</Text>
+                        <Text style={styles.eventName}>{getEventName(event, language)}</Text>
                       </View>
-                      {event.description && <Text style={styles.eventDesc}>{event.description}</Text>}
+                      {getEventDescription(event, language) && <Text style={styles.eventDesc}>{getEventDescription(event, language)}</Text>}
                     </View>
-                    <TouchableOpacity style={styles.bellBtn}>
-                      <Ionicons name="notifications-outline" size={18} color={colors.textMuted} />
+                    <TouchableOpacity
+                      style={styles.bellBtn}
+                      onPress={() => handleToggleEventNotification(event)}
+                      accessibilityRole="button"
+                      accessibilityLabel={notifiedEventIds.includes(event.id) ? t('islamicDayNotifyOff') : t('islamicDayNotifyOn')}
+                    >
+                      <Ionicons
+                        name={notifiedEventIds.includes(event.id) ? 'notifications' : 'notifications-outline'}
+                        size={18}
+                        color={notifiedEventIds.includes(event.id) ? colors.gold : colors.textMuted}
+                      />
                     </TouchableOpacity>
                   </View>
                 );
@@ -117,12 +140,12 @@ export default function IslamicCalendarScreen() {
                   <MaterialCommunityIcons name={EVENT_ICONS[event.type] as any} size={24} color={color} />
                 </View>
                 <View style={styles.upcomingInfo}>
-                  <Text style={styles.upcomingName}>{event.name}</Text>
-                  <Text style={styles.upcomingDate}>{d.getDate()} {GREGORIAN_MONTHS_TR[d.getMonth()]} {d.getFullYear()}</Text>
+                  <Text style={styles.upcomingName}>{getEventName(event, language)}</Text>
+                  <Text style={styles.upcomingDate}>{formatGregorianDate(d, language)}</Text>
                 </View>
                 <View style={[styles.daysLeftBadge, { backgroundColor: color + '22', borderColor: color }]}>
                   <Text style={[styles.daysLeftNum, { color }]}>{event.daysLeft}</Text>
-                  <Text style={[styles.daysLeftLabel, { color }]}>gün</Text>
+                  <Text style={[styles.daysLeftLabel, { color }]}>{t('calendarDaySuffix')}</Text>
                 </View>
               </View>
             );

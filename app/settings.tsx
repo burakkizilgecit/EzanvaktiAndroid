@@ -1,41 +1,37 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Switch, StatusBar, Modal, Linking, ActivityIndicator, Platform,
-} from 'react-native';
-import { Audio } from 'expo-av';
+  Switch, StatusBar, Modal, Linking, ActivityIndicator, Platform, AppState,
+ Alert } from 'react-native';
+import { SoundPreviewController, type PreviewState } from '../services/soundPreviewController';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Alert } from 'react-native';
 import { useTutorialStore } from '../store/useTutorialStore';
-import type { NotificationSound } from '../store/useSettingsStore';
+import { type NotificationSound, useSettingsStore, type AppSettings } from '../store/useSettingsStore';
 import { useTranslation, type Language } from '../i18n';
 import { pickSystemRingtone, pickAudioFile } from '../services/soundPickerService';
 import { setupCustomNotificationChannel } from '../services/notificationService';
-import { scheduleAllNotifications } from '../services/notificationService';
-import { usePrayerStore } from '../store/usePrayerStore';
 import { useTheme } from '../context/ThemeContext';
+import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 
-const SOUNDS: { key: NotificationSound; label: string; desc: string; icon: string; file: any }[] = [
+const SOUNDS: { key: NotificationSound; labelKey: string; descKey: string; icon: string; file: any }[] = [
   {
     key: 'ezan',
-    label: 'Ezan',
-    desc: 'Geleneksel Arapça ezan sesi',
+    labelKey: 'soundEzan',
+    descKey: 'soundEzanDesc',
     icon: 'mosque',
     file: require('../assets/sounds/ezan.mp3'),
   },
   {
     key: 'ilahi',
-    label: 'İlahi',
-    desc: 'Türkçe dinî ilahi melodisi',
+    labelKey: 'soundIlahi',
+    descKey: 'soundIlahiDesc',
     icon: 'music-note',
     file: require('../assets/sounds/ilahi.mp3'),
   },
 ];
-import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
-import { useSettingsStore, type AppSettings } from '../store/useSettingsStore';
 
 const PRIVACY_POLICY_URL = 'https://burakkizilgecit.github.io/islamicibadet-privacy/privacy-policy.html';
 const APP_VERSION = '1.0.0';
@@ -44,18 +40,18 @@ type NotifKey = keyof AppSettings['notifications'];
 
 interface SettingItem {
   key: NotifKey;
-  label: string;
-  desc: string;
+  labelKey: string;
+  descKey: string;
   icon: string;
 }
 
 const NOTIFICATION_SETTINGS: SettingItem[] = [
-  { key: 'prayerTimes',   label: 'Namaz Vakitleri',         desc: 'Tüm vakitler için bildirim al',    icon: 'clock-time-five-outline' },
-  { key: 'earlyReminder', label: 'Vakit Öncesi Hatırlatma', desc: 'Namazdan 10 dk önce hatırlat',     icon: 'bell-ring-outline' },
-  { key: 'dailyHadith',   label: 'Günlük Hadis',            desc: 'Her gün yeni hadis bildirimi al',  icon: 'format-quote-close' },
-  { key: 'dailyDua',      label: 'Günlük Dua',              desc: 'Her gün yeni dua bildirimi al',    icon: 'hands-pray' },
-  { key: 'dhikrReminder', label: 'Zikir Hatırlatması',      desc: 'Bugünkü zikiri hatırlatır',        icon: 'circle-outline' },
-  { key: 'islamicDays',   label: 'Dini Günler',             desc: 'Bayramlar, kandiller için bildirim', icon: 'calendar-star' },
+  { key: 'prayerTimes',   labelKey: 'notifPrayerTimes',   descKey: 'notifPrayerTimesDesc',   icon: 'clock-time-five-outline' },
+  { key: 'earlyReminder', labelKey: 'notifEarlyReminder', descKey: 'notifEarlyReminderDesc', icon: 'bell-ring-outline' },
+  { key: 'dailyHadith',   labelKey: 'notifDailyHadith',   descKey: 'notifDailyHadithDesc',   icon: 'format-quote-close' },
+  { key: 'dailyDua',      labelKey: 'notifDailyDua',      descKey: 'notifDailyDuaDesc',      icon: 'hands-pray' },
+  { key: 'dhikrReminder', labelKey: 'notifDhikr',         descKey: 'notifDhikrDesc',         icon: 'circle-outline' },
+  { key: 'islamicDays',   labelKey: 'notifIslamicDays',   descKey: 'notifIslamicDaysDesc',   icon: 'calendar-star' },
 ];
 
 // ── Time Picker ──────────────────────────────────────────────────────────────
@@ -81,6 +77,7 @@ interface TimePickerProps {
 }
 
 function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynStyles }: TimePickerProps) {
+  const { t } = useTranslation();
   const [start, setStart] = useState<TimeParts>(parseTime(startTime));
   const [end, setEnd] = useState<TimeParts>(parseTime(endTime));
 
@@ -107,13 +104,13 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={[dynStyles.pickerOverlay, { backgroundColor: colors.overlay }]}>
         <View style={[dynStyles.pickerCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[dynStyles.pickerTitle, { color: colors.textPrimary }]}>Sessiz Saatler</Text>
-          <Text style={[dynStyles.pickerHint, { color: colors.textMuted }]}>Bu saatler arasında bildirim gönderilmez.</Text>
+          <Text style={[dynStyles.pickerTitle, { color: colors.textPrimary }]}>{t('settingsSilentHours')}</Text>
+          <Text style={[dynStyles.pickerHint, { color: colors.textMuted }]}>{t('settingsSilentNote')}</Text>
 
           <View style={dynStyles.pickerRow}>
             {/* Start */}
             <View style={dynStyles.pickerSection}>
-              <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>Başlangıç</Text>
+              <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>{t('settingsSilentStart')}</Text>
               <View style={dynStyles.timeDisplay}>
                 <Wheel value={start.h} field="h" which="start" />
                 <Text style={[dynStyles.timeSep, { color: colors.gold }]}>:</Text>
@@ -127,7 +124,7 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
 
             {/* End */}
             <View style={dynStyles.pickerSection}>
-              <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>Bitiş</Text>
+              <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>{t('settingsSilentEnd')}</Text>
               <View style={dynStyles.timeDisplay}>
                 <Wheel value={end.h} field="h" which="end" />
                 <Text style={[dynStyles.timeSep, { color: colors.gold }]}>:</Text>
@@ -138,13 +135,13 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
 
           <View style={dynStyles.pickerBtns}>
             <TouchableOpacity style={[dynStyles.pickerCancelBtn, { backgroundColor: colors.cardBorder }]} onPress={onClose}>
-              <Text style={[dynStyles.pickerCancelText, { color: colors.textSecondary }]}>İptal</Text>
+              <Text style={[dynStyles.pickerCancelText, { color: colors.textSecondary }]}>{t('cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[dynStyles.pickerSaveBtn, { backgroundColor: colors.gold }]}
               onPress={() => { onSave(fmt(start), fmt(end)); onClose(); }}
             >
-              <Text style={[dynStyles.pickerSaveText, { color: colors.background }]}>Kaydet</Text>
+              <Text style={[dynStyles.pickerSaveText, { color: colors.background }]}>{t('save')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -182,7 +179,7 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   soundRow:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2, gap: SPACING.sm },
   soundIconBox:      { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(200,168,83,0.12)', alignItems: 'center', justifyContent: 'center' },
   soundIconBoxActive:{ backgroundColor: colors.gold },
-  previewBtn:        { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  previewBtn:        { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   previewBtnActive:  { opacity: 1 },
   radioOuter:        { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.cardBorder, alignItems: 'center', justifyContent: 'center' },
   radioOuterActive:  { borderColor: colors.gold },
@@ -239,49 +236,44 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { colors, fs } = useTheme();
   const { settings, toggleNotification, updateSettings } = useSettingsStore();
   const { reset: resetTutorial } = useTutorialStore();
-  const location = usePrayerStore(s => s.location);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showSoundPicker, setShowSoundPicker] = useState(false);
   const [isSoundLoading, setIsSoundLoading] = useState(false);
-  const [playingKey, setPlayingKey] = useState<string | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
 
+  const [preview, setPreview] = useState<PreviewState>({key: null, status: 'idle'});
+  const [previewController] = useState(() => new SoundPreviewController(setPreview, console.warn));
+  useEffect(() => {
+    previewController.setErrorHandler(error => {
+      console.warn('Sound preview failed', error);
+      Alert.alert(t('errorTitle'), t('errorSoundPreview'));
+    });
+  }, [previewController, t]);
   const styles = useMemo(() => makeStyles(colors, fs), [colors, fs]);
+  const stopPreview = useCallback(() => previewController.stop().catch(console.warn), [previewController]);
+  useFocusEffect(useCallback(() => () => { void stopPreview(); }, [stopPreview]));
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => { if (state !== 'active') void stopPreview(); });
+    return () => sub.remove();
+  }, [stopPreview]);
 
-  const stopPreview = async () => {
-    if (soundRef.current) { await soundRef.current.stopAsync(); await soundRef.current.unloadAsync(); soundRef.current = null; }
-    setPlayingKey(null);
-  };
-
-  const previewSound = async (sound: NotificationSound) => {
-    try {
-      if (playingKey === sound) { await stopPreview(); return; }
-      await stopPreview();
-      const file = SOUNDS.find(s => s.key === sound)?.file;
-      if (!file) return;
-      setPlayingKey(sound);
-      const { sound: s } = await Audio.Sound.createAsync(file, { shouldPlay: true });
-      soundRef.current = s;
-      s.setOnPlaybackStatusUpdate(st => {
-        if (st.isLoaded && st.didJustFinish) { s.unloadAsync(); setPlayingKey(null); }
-      });
-    } catch { setPlayingKey(null); }
-  };
-
-  const previewCustomSound = async (uri: string) => {
-    try {
-      if (playingKey === 'custom') { await stopPreview(); return; }
-      await stopPreview();
-      setPlayingKey('custom');
-      const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
-      soundRef.current = s;
-      s.setOnPlaybackStatusUpdate(st => {
-        if (st.isLoaded && st.didJustFinish) { s.unloadAsync(); setPlayingKey(null); }
-      });
-    } catch { setPlayingKey(null); }
+  const previewControls = (key: string, source: number | {uri: string}) => {
+    const active = preview.key === key;
+    const running = active && (preview.status === 'playing' || preview.status === 'loading');
+    return <View style={{flexDirection: 'row', alignItems: 'center'}}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('audioPlay')} disabled={running}
+        style={[styles.previewBtn, {opacity: running ? 0.5 : 1}]} onPress={() => void previewController.play(key, source)}>
+        {active && preview.status === 'loading' ? <ActivityIndicator size="small" color={colors.gold} />
+          : <Ionicons name="play-circle-outline" size={28} color={colors.gold} />}
+      </TouchableOpacity>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('audioPause')} disabled={!running}
+        style={[styles.previewBtn, {opacity: running ? 1 : 0.35}]} onPress={() => previewController.pause()}>
+        <Ionicons name="pause-circle-outline" size={28} color={colors.gold} />
+      </TouchableOpacity>
+    </View>;
   };
 
   const applyCustomSound = async (uri: string, name: string) => {
@@ -290,16 +282,8 @@ export default function SettingsScreen() {
     try {
       await setupCustomNotificationChannel(uri);
       updateSettings({ notificationSound: 'custom', customSoundUri: uri, customSoundName: name });
-      if (location) {
-        await scheduleAllNotifications(location.lat, location.lng, {
-          ...settings,
-          notificationSound: 'custom',
-          customSoundUri: uri,
-          customSoundName: name,
-        });
-      }
     } catch {
-      Alert.alert('Hata', 'Ses ayarlanamadı. Lütfen tekrar deneyin.');
+      Alert.alert(t('errorTitle'), t('errorSoundSetup'));
     } finally {
       setIsSoundLoading(false);
     }
@@ -308,7 +292,7 @@ export default function SettingsScreen() {
 
   const handlePickRingtone = async () => {
     if (Platform.OS !== 'android') {
-      Alert.alert('Bilgi', 'Zil sesi seçimi yalnızca Android\'de desteklenmektedir.');
+      Alert.alert(t('infoTitle'), t('infoAndroidOnly'));
       return;
     }
     setShowSoundPicker(false);
@@ -322,7 +306,7 @@ export default function SettingsScreen() {
     if (picked) await applyCustomSound(picked.uri, picked.name);
   };
 
-  const { t } = useTranslation();
+
 
   const handleLanguageChange = (lang: Language) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -360,7 +344,7 @@ export default function SettingsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Ayarlar</Text>
+        <Text style={styles.headerTitle}>{t('settingsTitle')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -368,16 +352,16 @@ export default function SettingsScreen() {
       <Modal visible={showSoundPicker} transparent animationType="fade" onRequestClose={() => setShowSoundPicker(false)}>
         <View style={[styles.pickerOverlay, { backgroundColor: colors.overlay }]}>
           <View style={[styles.pickerCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-            <Text style={[styles.pickerTitle, { color: colors.textPrimary }]}>Ses Kaynağı Seç</Text>
-            <Text style={[styles.pickerHint, { color: colors.textMuted }]}>Bildirim sesi için kaynak türünü belirleyin.</Text>
+            <Text style={[styles.pickerTitle, { color: colors.textPrimary }]}>{t('soundPickerTitle')}</Text>
+            <Text style={[styles.pickerHint, { color: colors.textMuted }]}>{t('soundPickerDesc')}</Text>
 
             <TouchableOpacity style={styles.soundPickerRow} onPress={handlePickRingtone} activeOpacity={0.7}>
               <View style={styles.soundPickerIconBox}>
                 <Ionicons name="musical-notes-outline" size={22} color={colors.gold} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Zil Seslerinden Seç</Text>
-                <Text style={styles.settingDesc2}>Telefonunuzdaki sistem zil seslerini görüntüleyin</Text>
+                <Text style={styles.settingLabel}>{t('soundFromRingtone')}</Text>
+                <Text style={styles.settingDesc2}>{t('soundFromRingtoneDesc')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
             </TouchableOpacity>
@@ -389,14 +373,14 @@ export default function SettingsScreen() {
                 <Ionicons name="folder-open-outline" size={22} color={colors.gold} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Ses Dosyasından Seç</Text>
-                <Text style={styles.settingDesc2}>Müzik, ses kaydı veya herhangi bir ses dosyası</Text>
+                <Text style={styles.settingLabel}>{t('soundFromFile')}</Text>
+                <Text style={styles.settingDesc2}>{t('soundFromFileDesc')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.pickerCancelBtn, { marginTop: SPACING.md, backgroundColor: colors.cardBorder }]} onPress={() => setShowSoundPicker(false)}>
-              <Text style={[styles.pickerCancelText, { color: colors.textSecondary }]}>İptal</Text>
+              <Text style={[styles.pickerCancelText, { color: colors.textSecondary }]}>{t('cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -404,9 +388,9 @@ export default function SettingsScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: SPACING.md }}>
 
-        {/* ── Görünüm ── */}
-        <Text style={styles.sectionTitle}>Görünüm</Text>
-        <Text style={styles.sectionDesc}>Tema ve yazı boyutunu kişiselleştirin.</Text>
+        {/* ── Appearance ── */}
+        <Text style={styles.sectionTitle}>{t('settingsAppearance')}</Text>
+        <Text style={styles.sectionDesc}>{t('settingsAppearanceDesc')}</Text>
 
         {/* Theme selection */}
         <View style={styles.themeRow}>
@@ -425,7 +409,7 @@ export default function SettingsScreen() {
               <View style={[styles.themeLine, { backgroundColor: '#8B95B0', width: '75%' }]} />
               <View style={[styles.themeLine, { backgroundColor: '#4E5A75', width: '55%' }]} />
             </View>
-            <Text style={[styles.themeBtnLabel, { color: currentTheme === 'dark' ? '#D4A84B' : '#8B95B0' }]}>Gece Modu</Text>
+            <Text style={[styles.themeBtnLabel, { color: currentTheme === 'dark' ? '#D4A84B' : '#8B95B0' }]}>{t('themeDarkMode')}</Text>
           </TouchableOpacity>
 
           {/* Light */}
@@ -443,17 +427,26 @@ export default function SettingsScreen() {
               <View style={[styles.themeLine, { backgroundColor: '#6B5438', width: '75%' }]} />
               <View style={[styles.themeLine, { backgroundColor: '#A8916A', width: '55%' }]} />
             </View>
-            <Text style={[styles.themeBtnLabel, { color: currentTheme === 'light' ? '#C4922A' : '#6B5438' }]}>Gündüz Modu</Text>
+            <Text style={[styles.themeBtnLabel, { color: currentTheme === 'light' ? '#C4922A' : '#6B5438' }]}>{t('themeLightMode')}</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          accessibilityRole="radio"
+          accessibilityState={{ checked: currentTheme === 'system' }}
+          onPress={() => updateSettings({ theme: 'system' })}
+          style={{ minHeight: 48, padding: 12, marginBottom: SPACING.sm, borderWidth: 1, borderRadius: RADIUS.lg, borderColor: currentTheme === 'system' ? colors.gold : colors.cardBorder }}
+        >
+          <Text style={{ color: currentTheme === 'system' ? colors.gold : colors.textPrimary }}>{t('settingsThemeSystem')}</Text>
+        </TouchableOpacity>
 
         {/* Font size selection */}
         <View style={[styles.fontRow, { marginBottom: SPACING.md }]}>
           {([
-            { key: 'normal', label: 'Standart', aaSize: 15 },
-            { key: 'large', label: 'Büyük', aaSize: 20 },
-            { key: 'xlarge', label: 'Çok Büyük — Yaşlı Dostu', aaSize: 26 },
-          ] as { key: 'normal' | 'large' | 'xlarge'; label: string; aaSize: number }[]).map(item => {
+            { key: 'normal', labelKey: 'fontNormal', aaSize: 15 },
+            { key: 'large', labelKey: 'fontLarge', aaSize: 20 },
+            { key: 'xlarge', labelKey: 'fontXLarge', aaSize: 26 },
+          ] as { key: 'normal' | 'large' | 'xlarge'; labelKey: string; aaSize: number }[]).map(item => {
             const active = currentFontSize === item.key;
             return (
               <TouchableOpacity
@@ -467,7 +460,7 @@ export default function SettingsScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={[styles.fontBtnAa, { fontSize: item.aaSize, color: active ? colors.gold : colors.textPrimary }]}>Aa</Text>
-                <Text style={[styles.fontBtnLabel, { fontSize: fs(FONT_SIZE.sm), color: active ? colors.gold : colors.textSecondary }]}>{item.label}</Text>
+                <Text style={[styles.fontBtnLabel, { fontSize: fs(FONT_SIZE.sm), color: active ? colors.gold : colors.textSecondary }]}>{t(item.labelKey as any)}</Text>
                 {active && <Ionicons name="checkmark-circle" size={18} color={colors.gold} />}
               </TouchableOpacity>
             );
@@ -475,8 +468,8 @@ export default function SettingsScreen() {
         </View>
 
         {/* Notification Settings */}
-        <Text style={styles.sectionTitle}>Bildirim Ayarları</Text>
-        <Text style={styles.sectionDesc}>Önemli hatırlatmalar için bildirimleri ayarlayabilirsiniz.</Text>
+        <Text style={styles.sectionTitle}>{t('settingsNotifications')}</Text>
+        <Text style={styles.sectionDesc}>{t('settingsNotificationsDesc')}</Text>
         <View style={styles.card}>
           {NOTIFICATION_SETTINGS.map((item, i) => (
             <View key={item.key} style={[styles.settingRow, i < NOTIFICATION_SETTINGS.length - 1 && styles.rowBorder]}>
@@ -484,8 +477,8 @@ export default function SettingsScreen() {
                 <MaterialCommunityIcons name={item.icon as any} size={20} color={colors.gold} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>{item.label}</Text>
-                <Text style={styles.settingDesc2}>{item.desc}</Text>
+                <Text style={styles.settingLabel}>{t(item.labelKey as any)}</Text>
+                <Text style={styles.settingDesc2}>{t(item.descKey as any)}</Text>
               </View>
               <Switch
                 value={settings.notifications[item.key]}
@@ -522,92 +515,43 @@ export default function SettingsScreen() {
 
         {/* Notification Sound */}
         <Text style={styles.sectionTitle}>{t('settingsSound')}</Text>
-        <Text style={styles.sectionDesc}>Namaz vakti bildirimlerinde çalacak sesi seçin.</Text>
+        <Text style={styles.sectionDesc}>{t('settingsSoundDesc')}</Text>
         <View style={styles.card}>
-          {SOUNDS.map((s) => {
+          {SOUNDS.map(s => {
             const active = settings.notificationSound === s.key;
-            return (
-              <TouchableOpacity
-                key={s.key}
-                style={[styles.soundRow, styles.rowBorder]}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); updateSettings({ notificationSound: s.key }); }}
-                activeOpacity={0.7}
-              >
+            return <View key={s.key} style={[styles.soundRow, styles.rowBorder]}>
+              <TouchableOpacity accessibilityRole="radio" accessibilityState={{checked: active}}
+                style={{flex: 1, flexDirection: 'row', alignItems: 'center'}}
+                onPress={() => { void stopPreview(); updateSettings({notificationSound: s.key}); }}>
                 <View style={[styles.soundIconBox, active && styles.soundIconBoxActive]}>
                   <MaterialCommunityIcons name={s.icon as any} size={20} color={active ? colors.background : colors.gold} />
                 </View>
                 <View style={styles.settingInfo}>
-                  <Text style={[styles.settingLabel, active && { color: colors.gold }]}>{s.label}</Text>
-                  <Text style={styles.settingDesc2}>{s.desc}</Text>
+                  <Text style={[styles.settingLabel, active && {color: colors.gold}]}>{t(s.labelKey as any)}</Text>
+                  <Text style={styles.settingDesc2}>{t(s.descKey as any)}</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.previewBtn, playingKey === s.key && styles.previewBtnActive]}
-                  onPress={() => previewSound(s.key)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons
-                    name={playingKey === s.key ? 'pause-circle' : 'play-circle-outline'}
-                    size={24}
-                    color={playingKey === s.key ? colors.gold : colors.textMuted}
-                  />
-                </TouchableOpacity>
-                <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                  {active && <View style={styles.radioInner} />}
-                </View>
+                <View style={[styles.radioOuter, active && styles.radioOuterActive]}>{active && <View style={styles.radioInner} />}</View>
               </TouchableOpacity>
-            );
+              {previewControls(s.key, s.file)}
+            </View>;
           })}
-
-          {/* Custom sound from device */}
-          {(() => {
-            const active = settings.notificationSound === 'custom';
-            const hasCustom = !!settings.customSoundUri;
-            return (
-              <TouchableOpacity
-                style={styles.soundRow}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowSoundPicker(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.soundIconBox, active && styles.soundIconBoxActive]}>
-                  {isSoundLoading
-                    ? <ActivityIndicator size="small" color={active ? colors.background : colors.gold} />
-                    : <Ionicons name="phone-portrait-outline" size={20} color={active ? colors.background : colors.gold} />
-                  }
-                </View>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingLabel, active && { color: colors.gold }]}>
-                    {active && hasCustom ? settings.customSoundName! : 'Telefondan Seç'}
-                  </Text>
-                  <Text style={styles.settingDesc2}>
-                    {active ? 'Değiştirmek için dokun' : 'Zil sesi veya ses dosyası seç'}
-                  </Text>
-                </View>
-                {active && hasCustom && (
-                  <TouchableOpacity
-                    style={[styles.previewBtn, playingKey === 'custom' && styles.previewBtnActive]}
-                    onPress={() => previewCustomSound(settings.customSoundUri!)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name={playingKey === 'custom' ? 'pause-circle' : 'play-circle-outline'}
-                      size={24}
-                      color={playingKey === 'custom' ? colors.gold : colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                )}
-                <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                  {active && <View style={styles.radioInner} />}
-                </View>
-              </TouchableOpacity>
-            );
-          })()}
+          <View style={styles.soundRow}>
+            <TouchableOpacity style={{flex: 1, flexDirection: 'row', alignItems: 'center'}}
+              onPress={() => { void stopPreview(); setShowSoundPicker(true); }}>
+              <View style={styles.soundIconBox}>
+                {isSoundLoading ? <ActivityIndicator size="small" color={colors.gold} /> : <Ionicons name="phone-portrait-outline" size={20} color={colors.gold} />}
+              </View>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>{settings.notificationSound === 'custom' && settings.customSoundUri ? settings.customSoundName : t('soundFromPhone')}</Text>
+                <Text style={styles.settingDesc2}>{t('soundFromPhoneDesc')}</Text>
+              </View>
+            </TouchableOpacity>
+            {settings.customSoundUri && previewControls('custom', {uri: settings.customSoundUri})}
+          </View>
         </View>
 
         {/* Other Settings */}
-        <Text style={styles.sectionTitle}>Diğer Ayarlar</Text>
+        <Text style={styles.sectionTitle}>{t('settingsOther')}</Text>
         <View style={styles.card}>
           {/* Silent Hours */}
           <TouchableOpacity
@@ -619,8 +563,8 @@ export default function SettingsScreen() {
               <Ionicons name="moon-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Sessiz Saatler</Text>
-              <Text style={styles.settingDesc2}>Bu saatler arasında bildirim gelmez</Text>
+              <Text style={styles.settingLabel}>{t('settingsSilentHours')}</Text>
+              <Text style={styles.settingDesc2}>{t('settingsSilentHoursDesc')}</Text>
             </View>
             <View style={styles.valueRow}>
               <View style={styles.timeBadge}>
@@ -640,8 +584,8 @@ export default function SettingsScreen() {
               <Ionicons name="phone-portrait-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Titreşim</Text>
-              <Text style={styles.settingDesc2}>Bildirimlerde titreşim {settings.vibration ? 'açık' : 'kapalı'}</Text>
+              <Text style={styles.settingLabel}>{t('settingsVibration')}</Text>
+              <Text style={styles.settingDesc2}>{t('settingsVibrationDesc', { state: t(settings.vibration ? 'settingsVibrationOn' : 'settingsVibrationOff') })}</Text>
             </View>
             <Switch
               value={settings.vibration}
@@ -657,8 +601,8 @@ export default function SettingsScreen() {
               <Ionicons name="location-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Hesaplama Metodu</Text>
-              <Text style={styles.settingDesc2}>Namaz vakti hesaplama yöntemi</Text>
+              <Text style={styles.settingLabel}>{t('settingsCalculation')}</Text>
+              <Text style={styles.settingDesc2}>{t('settingsCalcDesc')}</Text>
             </View>
             <View style={styles.valueRow}>
               <Text style={styles.valueText}>{settings.calculationMethod}</Text>
@@ -667,8 +611,20 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Hakkında */}
-        <Text style={styles.sectionTitle}>Hakkında</Text>
+        {Platform.OS === 'android' && <TouchableOpacity
+          accessibilityRole="button" style={[styles.card, styles.settingRow]}
+          onPress={() => Linking.openURL('https://play.google.com/store/apps/details?id=com.islamicibadet.app')
+            .catch(() => Alert.alert(t('errorTitle'), t('retry')))}>
+          <View style={styles.settingIcon}><Ionicons name="star-outline" size={20} color={colors.gold} /></View>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>{t('settingsRate')}</Text>
+            <Text style={styles.settingDesc2}>{t('settingsRateDesc')}</Text>
+          </View>
+          <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+        </TouchableOpacity>}
+
+        {/* About */}
+        <Text style={styles.sectionTitle}>{t('settingsAbout')}</Text>
         <View style={styles.card}>
           <TouchableOpacity
             style={[styles.settingRow, styles.rowBorder]}
@@ -679,8 +635,8 @@ export default function SettingsScreen() {
               <Ionicons name="play-circle-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Tanıtımı Tekrar Gör</Text>
-              <Text style={styles.settingDesc2}>Uygulama kullanım kılavuzunu baştan izle</Text>
+              <Text style={styles.settingLabel}>{t('settingsTutorial')}</Text>
+              <Text style={styles.settingDesc2}>{t('settingsTutorialDesc')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
           </TouchableOpacity>
@@ -694,8 +650,8 @@ export default function SettingsScreen() {
               <Ionicons name="shield-checkmark-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Gizlilik Politikası</Text>
-              <Text style={styles.settingDesc2}>Verilerinizin nasıl kullanıldığını öğrenin</Text>
+              <Text style={styles.settingLabel}>{t('settingsPrivacy')}</Text>
+              <Text style={styles.settingDesc2}>{t('settingsPrivacyDesc')}</Text>
             </View>
             <Ionicons name="open-outline" size={16} color={colors.textMuted} />
           </TouchableOpacity>
@@ -705,20 +661,19 @@ export default function SettingsScreen() {
               <Ionicons name="information-circle-outline" size={20} color={colors.gold} />
             </View>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Uygulama Sürümü</Text>
-              <Text style={styles.settingDesc2}>Ezan Vakti v{APP_VERSION}</Text>
+              <Text style={styles.settingLabel}>{t('settingsVersion')}</Text>
+              <Text style={styles.settingDesc2}>{t('appName')} v{APP_VERSION}</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.appInfo}>
           <MaterialCommunityIcons name="mosque" size={32} color={colors.gold} style={{ opacity: 0.5 }} />
-          <Text style={styles.appName}>Ezan Vakti</Text>
-          <Text style={styles.appVersion}>Sürüm {APP_VERSION}</Text>
-          <Text style={styles.appCopyright}>© 2025 Tüm hakları saklıdır.</Text>
+          <Text style={styles.appName}>{t('appName')}</Text>
+          <Text style={styles.appVersion}>{t('settingsVersionValue', { version: APP_VERSION })}</Text>
+          <Text style={styles.appCopyright}>{t('settingsCopyright')}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
-

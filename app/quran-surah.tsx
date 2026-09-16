@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Audio } from 'expo-av';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { AudioController } from '../services/audioController';
+import { loadData, saveData } from '../services/storageService';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
@@ -19,109 +20,90 @@ export default function QuranSurahScreen() {
   const { number } = useLocalSearchParams<{ number: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<SurahMeta | null>(null);
   const [verses, setVerses] = useState<Verse[]>([]);
   const [playingVerse, setPlayingVerse] = useState<number | null>(null);
   const [isPlayingAll, setIsPlayingAll] = useState(false);
   const [bookmarks, setBookmarks] = useState<Set<number>>(new Set());
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const audio = useRef(new AudioController());
+  const playbackId = useRef(0);
+  const activeVerse = useRef<number | null>(null);
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
+  const [bookmarksLoaded, setBookmarksLoaded] = useState(false);
   const isPlayingAllRef = useRef(false);
 
   useEffect(() => {
-    loadSurah();
+    let active = true;
+    setLoading(true); setError(null); setBookmarksLoaded(false);
+    activeVerse.current = null; pausedRef.current = false; isPlayingAllRef.current = false;
+    setPlayingVerse(null); setIsPlayingAll(false); setPaused(false);
+    fetchSurah(Number(number ?? '1')).then(data => {
+      if (active) { setMeta(data.meta); setVerses(data.verses); }
+    }).catch(() => { if (active) setError('quranError'); })
+      .finally(() => { if (active) setLoading(false); });
+    loadData<number[]>(`quran_bookmarks_${number ?? '1'}`).then(saved => {
+      if (active) { setBookmarks(new Set(saved ?? [])); setBookmarksLoaded(true); }
+    }).catch(console.warn);
+    const controller = audio.current;
+    const session = playbackId;
     return () => {
-      soundRef.current?.unloadAsync();
+      active = false; session.current++;
       isPlayingAllRef.current = false;
+      controller.stop().catch(console.warn);
     };
-  }, [number]);
+  }, [number, loadAttempt]);
 
-  const loadSurah = async () => {
-    setLoading(true); setError(null);
-    try {
-      const data = await fetchSurah(parseInt(number ?? '1'));
-      setMeta(data.meta);
-      setVerses(data.verses);
-    } catch (e: any) {
-      setError(t('quranError'));
-    } finally {
-      setLoading(false);
-    }
+  useFocusEffect(React.useCallback(() => {
+    const controller = audio.current;
+    return () => {
+      playbackId.current++;
+      activeVerse.current = null; isPlayingAllRef.current = false; pausedRef.current = false;
+      setPlayingVerse(null); setIsPlayingAll(false); setPaused(false);
+      void controller.stop().catch(console.warn);
+    };
+  }, []));
+
+  const togglePause = () => {
+    const next = !pausedRef.current;
+    pausedRef.current = next; setPaused(next);
+    if (next) audio.current.pause(); else audio.current.resume();
   };
 
-  const stopSound = async () => {
-    if (soundRef.current) {
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
-    }
+  const resetPlayback = () => {
+    activeVerse.current = null; pausedRef.current = false; isPlayingAllRef.current = false;
+    setPlayingVerse(null); setPaused(false); setIsPlayingAll(false);
   };
 
   const playAudio = async (verse: Verse) => {
+    if (activeVerse.current === verse.number) { togglePause(); return; }
+    const request = ++playbackId.current;
+    activeVerse.current = verse.number; pausedRef.current = false;
+    isPlayingAllRef.current = false; setIsPlayingAll(false); setPaused(false);
+    setPlayingVerse(verse.number);
     try {
-      if (isPlayingAllRef.current) {
-        isPlayingAllRef.current = false;
-        setIsPlayingAll(false);
-      }
-      await stopSound();
-      if (playingVerse === verse.number) {
-        setPlayingVerse(null);
-        return;
-      }
-      setPlayingVerse(verse.number);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: verse.audioUrl },
-        { shouldPlay: true },
-      );
-      soundRef.current = sound;
-      sound.setOnPlaybackStatusUpdate(status => {
-        if (status.isLoaded && status.didJustFinish) {
-          setPlayingVerse(null);
-        }
+      await audio.current.play({uri: verse.audioUrl}, () => {
+        if (request === playbackId.current) resetPlayback();
       });
-    } catch {
-      setPlayingVerse(null);
-    }
+    } catch { if (request === playbackId.current) resetPlayback(); }
   };
 
   const playAllVerses = async () => {
-    if (isPlayingAllRef.current) {
-      isPlayingAllRef.current = false;
-      setIsPlayingAll(false);
-      await stopSound();
-      setPlayingVerse(null);
-      return;
-    }
-
-    isPlayingAllRef.current = true;
-    setIsPlayingAll(true);
-
-    const playNext = async (index: number) => {
-      if (!isPlayingAllRef.current || index >= verses.length) {
-        isPlayingAllRef.current = false;
-        setIsPlayingAll(false);
-        setPlayingVerse(null);
-        return;
-      }
-      const verse = verses[index];
-      setPlayingVerse(verse.number);
+    if (isPlayingAllRef.current) { togglePause(); return; }
+    const request = ++playbackId.current;
+    isPlayingAllRef.current = true; pausedRef.current = false;
+    setIsPlayingAll(true); setPaused(false);
+    const playNext = async (index: number): Promise<void> => {
+      if (request !== playbackId.current) return;
+      if (index >= verses.length) { resetPlayback(); return; }
+      const verse = verses[index]; activeVerse.current = verse.number; setPlayingVerse(verse.number);
       try {
-        await stopSound();
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: verse.audioUrl },
-          { shouldPlay: true },
-        );
-        soundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate(status => {
-          if (status.isLoaded && status.didJustFinish) {
-            playNext(index + 1);
-          }
-        });
-      } catch {
-        playNext(index + 1);
-      }
+        await audio.current.play({uri: verse.audioUrl}, () => { void playNext(index + 1); });
+      } catch { if (request === playbackId.current) resetPlayback(); }
     };
-
-    playNext(0);
+    await playNext(0);
   };
 
   const shareVerse = async (verse: Verse) => {
@@ -130,17 +112,17 @@ export default function QuranSurahScreen() {
   };
 
   const toggleBookmark = (n: number) => {
-    setBookmarks(prev => {
-      const next = new Set(prev);
-      if (next.has(n)) next.delete(n); else next.add(n);
-      return next;
-    });
+    if (!bookmarksLoaded) return;
+    const next = new Set(bookmarks);
+    if (next.has(n)) next.delete(n); else next.add(n);
+    setBookmarks(next);
+    saveData(`quran_bookmarks_${number ?? '1'}`, [...next]).catch(console.warn);
   };
 
   const renderVerse = ({ item }: { item: Verse }) => {
-    const isPlaying = playingVerse === item.number;
+    const isPlaying = playingVerse === item.number && !paused;
     const isBookmarked = bookmarks.has(item.number);
-    const isBismillah = parseInt(number ?? '1') !== 1 && item.number === 1;
+    const isBismillah = ![1, 9].includes(Number(number ?? '1')) && item.number === 1;
 
     return (
       <View style={styles.verseCard}>
@@ -156,7 +138,7 @@ export default function QuranSurahScreen() {
             <Text style={styles.verseNum}>{item.number}</Text>
           </View>
           <View style={styles.actionBtns}>
-            <TouchableOpacity style={[styles.actionBtn, isPlaying && styles.actionBtnActive]} onPress={() => playAudio(item)}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={isPlaying ? t('audioPause') : t('audioResume')} style={[styles.actionBtn, isPlaying && styles.actionBtnActive]} onPress={() => playAudio(item)}>
               <Ionicons name={isPlaying ? 'pause' : 'play'} size={16} color={isPlaying ? colors.background : colors.gold} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionBtn} onPress={() => toggleBookmark(item.number)}>
@@ -190,7 +172,7 @@ export default function QuranSurahScreen() {
             </>
           )}
         </View>
-        <TouchableOpacity style={styles.backBtn} onPress={loadSurah}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace({ pathname: '/quran-surah', params: { number: number ?? '1' } })}>
           <Ionicons name="refresh" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
@@ -203,8 +185,8 @@ export default function QuranSurahScreen() {
       ) : error ? (
         <View style={styles.center}>
           <MaterialCommunityIcons name="book-open-variant" size={40} color={colors.textMuted} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadSurah}>
+          <Text style={styles.errorText}>{t('quranError')}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => setLoadAttempt(n => n + 1)}>
             <Ionicons name="refresh" size={16} color={colors.background} />
             <Text style={styles.retryText}>Tekrar Dene</Text>
           </TouchableOpacity>
@@ -212,6 +194,7 @@ export default function QuranSurahScreen() {
       ) : (
         <FlatList
           data={verses}
+          extraData={{ playingVerse, paused, isPlayingAll, bookmarks }}
           keyExtractor={v => String(v.number)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ padding: SPACING.md, paddingBottom: SPACING.xl }}
@@ -231,12 +214,12 @@ export default function QuranSurahScreen() {
                 onPress={playAllVerses}
               >
                 <Ionicons
-                  name={isPlayingAll ? 'stop-circle' : 'play-circle'}
+                  name={isPlayingAll && !paused ? 'pause-circle' : 'play-circle'}
                   size={18}
                   color={isPlayingAll ? colors.background : colors.gold}
                 />
                 <Text style={[styles.playAllText, isPlayingAll && styles.playAllTextActive]}>
-                  {isPlayingAll ? t('quranStop') : t('quranPlayAll')}
+                  {isPlayingAll ? (paused ? t('audioResume') : t('audioPause')) : t('quranPlayAll')}
                 </Text>
               </TouchableOpacity>
             </View>
