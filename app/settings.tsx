@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -12,7 +13,7 @@ import { useTutorialStore } from '../store/useTutorialStore';
 import { type NotificationSound, useSettingsStore, type AppSettings } from '../store/useSettingsStore';
 import { useTranslation, type Language } from '../i18n';
 import { pickSystemRingtone, pickAudioFile } from '../services/soundPickerService';
-import { setupCustomNotificationChannel } from '../services/notificationService';
+import { sendTestNotification, setupCustomNotificationChannel } from '../services/notificationService';
 import { useTheme } from '../context/ThemeContext';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 
@@ -34,7 +35,7 @@ const SOUNDS: { key: NotificationSound; labelKey: string; descKey: string; icon:
 ];
 
 const PRIVACY_POLICY_URL = 'https://burakkizilgecit.github.io/islamicibadet-privacy/privacy-policy.html';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.1';
 
 type NotifKey = keyof AppSettings['notifications'];
 
@@ -52,6 +53,7 @@ const NOTIFICATION_SETTINGS: SettingItem[] = [
   { key: 'dailyDua',      labelKey: 'notifDailyDua',      descKey: 'notifDailyDuaDesc',      icon: 'hands-pray' },
   { key: 'dhikrReminder', labelKey: 'notifDhikr',         descKey: 'notifDhikrDesc',         icon: 'circle-outline' },
   { key: 'islamicDays',   labelKey: 'notifIslamicDays',   descKey: 'notifIslamicDaysDesc',   icon: 'calendar-star' },
+  { key: 'optionalPrayers', labelKey: 'notifOptionalPrayers', descKey: 'notifOptionalPrayersDesc', icon: 'weather-sunset-up' },
 ];
 
 // ── Time Picker ──────────────────────────────────────────────────────────────
@@ -76,6 +78,27 @@ interface TimePickerProps {
   dynStyles: ReturnType<typeof makeStyles>;
 }
 
+function TimeWheel({ value, field, which, onAdjust, colors, dynStyles }: {
+  value: number;
+  field: 'h' | 'm';
+  which: 'start' | 'end';
+  onAdjust: (which: 'start' | 'end', field: 'h' | 'm', delta: number) => void;
+  colors: any;
+  dynStyles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={dynStyles.wheel}>
+      <TouchableOpacity onPress={() => onAdjust(which, field, 1)} style={dynStyles.wheelBtn} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+        <Ionicons name="chevron-up" size={22} color={colors.gold} />
+      </TouchableOpacity>
+      <Text style={[dynStyles.wheelValue, { color: colors.textPrimary }]}>{String(value).padStart(2, '0')}</Text>
+      <TouchableOpacity onPress={() => onAdjust(which, field, -1)} style={dynStyles.wheelBtn} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+        <Ionicons name="chevron-down" size={22} color={colors.gold} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynStyles }: TimePickerProps) {
   const { t } = useTranslation();
   const [start, setStart] = useState<TimeParts>(parseTime(startTime));
@@ -87,18 +110,6 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
     const setter = which === 'start' ? setStart : setEnd;
     setter(prev => ({ ...prev, [field]: (prev[field] + delta + max) % max }));
   };
-
-  const Wheel = ({ value, field, which }: { value: number; field: 'h' | 'm'; which: 'start' | 'end' }) => (
-    <View style={dynStyles.wheel}>
-      <TouchableOpacity onPress={() => adjust(which, field, 1)} style={dynStyles.wheelBtn} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
-        <Ionicons name="chevron-up" size={22} color={colors.gold} />
-      </TouchableOpacity>
-      <Text style={[dynStyles.wheelValue, { color: colors.textPrimary }]}>{String(value).padStart(2, '0')}</Text>
-      <TouchableOpacity onPress={() => adjust(which, field, -1)} style={dynStyles.wheelBtn} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
-        <Ionicons name="chevron-down" size={22} color={colors.gold} />
-      </TouchableOpacity>
-    </View>
-  );
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -112,9 +123,9 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
             <View style={dynStyles.pickerSection}>
               <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>{t('settingsSilentStart')}</Text>
               <View style={dynStyles.timeDisplay}>
-                <Wheel value={start.h} field="h" which="start" />
+                <TimeWheel value={start.h} field="h" which="start" onAdjust={adjust} colors={colors} dynStyles={dynStyles} />
                 <Text style={[dynStyles.timeSep, { color: colors.gold }]}>:</Text>
-                <Wheel value={start.m} field="m" which="start" />
+                <TimeWheel value={start.m} field="m" which="start" onAdjust={adjust} colors={colors} dynStyles={dynStyles} />
               </View>
             </View>
 
@@ -126,9 +137,9 @@ function TimePicker({ visible, startTime, endTime, onSave, onClose, colors, dynS
             <View style={dynStyles.pickerSection}>
               <Text style={[dynStyles.pickerLabel, { color: colors.textSecondary }]}>{t('settingsSilentEnd')}</Text>
               <View style={dynStyles.timeDisplay}>
-                <Wheel value={end.h} field="h" which="end" />
+                <TimeWheel value={end.h} field="h" which="end" onAdjust={adjust} colors={colors} dynStyles={dynStyles} />
                 <Text style={[dynStyles.timeSep, { color: colors.gold }]}>:</Text>
-                <Wheel value={end.m} field="m" which="end" />
+                <TimeWheel value={end.m} field="m" which="end" onAdjust={adjust} colors={colors} dynStyles={dynStyles} />
               </View>
             </View>
           </View>
@@ -166,6 +177,8 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   settingInfo: { flex: 1 },
   settingLabel: { color: colors.textPrimary, fontSize: fs(FONT_SIZE.sm), fontWeight: '500' },
   settingDesc2: { color: colors.textMuted, fontSize: fs(FONT_SIZE.xs), marginTop: 1 },
+  testNotificationButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, minHeight: 50, borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingHorizontal: SPACING.md },
+  testNotificationText: { color: colors.gold, fontSize: fs(FONT_SIZE.sm), fontWeight: '700' },
   valueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   valueText: { color: colors.textSecondary, fontSize: fs(FONT_SIZE.xs) },
   timeBadge: { backgroundColor: 'rgba(200,168,83,0.15)', borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(200,168,83,0.3)' },
@@ -243,6 +256,7 @@ export default function SettingsScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showSoundPicker, setShowSoundPicker] = useState(false);
   const [isSoundLoading, setIsSoundLoading] = useState(false);
+  const [isTestNotificationLoading, setIsTestNotificationLoading] = useState(false);
 
   const [preview, setPreview] = useState<PreviewState>({key: null, status: 'idle'});
   const [previewController] = useState(() => new SoundPreviewController(setPreview, console.warn));
@@ -321,6 +335,20 @@ export default function SettingsScreen() {
   const handleVibrationToggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     updateSettings({ vibration: !settings.vibration });
+  };
+
+  const handleTestNotification = async () => {
+    if (isTestNotificationLoading) return;
+    setIsTestNotificationLoading(true);
+    try {
+      const scheduled = await sendTestNotification(settings, t('notificationTestTitle'), t('notificationTestBody'));
+      Alert.alert(t(scheduled ? 'notificationTestTitle' : 'errorTitle'), t(scheduled ? 'notificationTestScheduled' : 'notificationPermissionNeeded'));
+    } catch (error) {
+      console.warn('Test notification failed', error);
+      Alert.alert(t('errorTitle'), t('retry'));
+    } finally {
+      setIsTestNotificationLoading(false);
+    }
   };
 
   const currentTheme = settings.theme ?? 'dark';
@@ -488,6 +516,20 @@ export default function SettingsScreen() {
               />
             </View>
           ))}
+          <TouchableOpacity
+            accessibilityRole="button"
+            style={styles.testNotificationButton}
+            onPress={() => void handleTestNotification()}
+            disabled={isTestNotificationLoading}
+          >
+            {isTestNotificationLoading
+              ? <ActivityIndicator size="small" color={colors.gold} />
+              : <Ionicons name="notifications-circle-outline" size={22} color={colors.gold} />}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.testNotificationText}>{t('notificationTestButton')}</Text>
+              <Text style={styles.settingDesc2}>{t('notificationTestDesc')}</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Language */}
@@ -517,6 +559,13 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>{t('settingsSound')}</Text>
         <Text style={styles.sectionDesc}>{t('settingsSoundDesc')}</Text>
         <View style={styles.card}>
+          <View style={[styles.soundRow, styles.rowBorder]}>
+            <TouchableOpacity accessibilityRole="radio" accessibilityState={{checked: settings.notificationSound === 'default'}} style={{flex: 1, flexDirection: 'row', alignItems: 'center'}} onPress={() => { void stopPreview(); updateSettings({notificationSound: 'default'}); }}>
+              <View style={[styles.soundIconBox, settings.notificationSound === 'default' && styles.soundIconBoxActive]}><Ionicons name="notifications-outline" size={20} color={settings.notificationSound === 'default' ? colors.background : colors.gold} /></View>
+              <View style={styles.settingInfo}><Text style={[styles.settingLabel, settings.notificationSound === 'default' && {color: colors.gold}]}>{t('defaultSound')}</Text><Text style={styles.settingDesc2}>{t('defaultSoundDesc')}</Text></View>
+              <View style={[styles.radioOuter, settings.notificationSound === 'default' && styles.radioOuterActive]}>{settings.notificationSound === 'default' && <View style={styles.radioInner} />}</View>
+            </TouchableOpacity>
+          </View>
           {SOUNDS.map(s => {
             const active = settings.notificationSound === s.key;
             return <View key={s.key} style={[styles.soundRow, styles.rowBorder]}>

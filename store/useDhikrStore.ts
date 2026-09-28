@@ -8,6 +8,7 @@ export interface DhikrItem {
   count: number;
   target: number;
   category: 'tespih' | 'salavat' | 'istigfar' | 'diger';
+  isCustom?: boolean;
 }
 
 export interface DhikrHistory {
@@ -28,10 +29,12 @@ const DEFAULT_DHIKR: DhikrItem[] = [
 interface DhikrStore {
   items: DhikrItem[];
   history: DhikrHistory;
-  activeCategory: 'tespih' | 'salavat' | 'istigfar' | 'diger';
+  activeCategory: DhikrItem['category'];
   lastDate: string;
   increment: (id: string) => void;
   reset: () => void;
+  addCustomDhikr: (name: string, target: number) => void;
+  removeCustomDhikr: (id: string) => void;
   setCategory: (cat: DhikrStore['activeCategory']) => void;
   getTotalToday: () => number;
   loadData: () => Promise<void>;
@@ -40,7 +43,25 @@ interface DhikrStore {
 }
 
 const todayKey = () => localDateKey();
-const zeroedItems = () => DEFAULT_DHIKR.map(d => ({ ...d, count: 0 }));
+const defaultIds = new Set(DEFAULT_DHIKR.map(item => item.id));
+
+function reconcileItems(stored: DhikrItem[] | null, keepCounts: boolean): DhikrItem[] {
+  const storedById = new Map((stored ?? []).map(item => [item.id, item]));
+  const defaults = DEFAULT_DHIKR.map(item => ({
+    ...item,
+    count: keepCounts ? Math.max(0, storedById.get(item.id)?.count ?? 0) : 0,
+  }));
+  const custom = (stored ?? [])
+    .filter(item => item.isCustom === true || !defaultIds.has(item.id))
+    .map(item => ({
+      ...item,
+      category: 'diger' as const,
+      isCustom: true,
+      count: keepCounts ? Math.max(0, item.count ?? 0) : 0,
+      target: Math.min(100000, Math.max(1, Math.trunc(item.target || 1))),
+    }));
+  return [...defaults, ...custom];
+}
 
 export const useDhikrStore = create<DhikrStore>((set, get) => ({
   items: DEFAULT_DHIKR,
@@ -64,7 +85,32 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
   },
 
   reset: () => {
-    const items = get().items.map(i => ({ ...i, count: 0 }));
+    const items = get().items.map(item => ({ ...item, count: 0 }));
+    set({ items });
+    saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
+  },
+
+  addCustomDhikr: (name, target) => {
+    const cleanedName = name.trim().replace(/\s+/g, ' ').slice(0, 60);
+    const cleanedTarget = Math.min(100000, Math.max(1, Math.trunc(target)));
+    if (!cleanedName || !Number.isFinite(cleanedTarget)) return;
+    const item: DhikrItem = {
+      id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      name: cleanedName,
+      count: 0,
+      target: cleanedTarget,
+      category: 'diger',
+      isCustom: true,
+    };
+    const items = [...get().items, item];
+    set({ items, activeCategory: 'diger' });
+    saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
+  },
+
+  removeCustomDhikr: (id) => {
+    const selected = get().items.find(item => item.id === id);
+    if (!selected?.isCustom) return;
+    const items = get().items.filter(item => item.id !== id);
     set({ items });
     saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
   },
@@ -82,24 +128,16 @@ export const useDhikrStore = create<DhikrStore>((set, get) => ({
     if (history) set({ history });
 
     const today = todayKey();
-    // A stored date from a previous day means that day is over — its tallies
-    // already live in `history`, so today's counters start fresh instead of
-    // continuing to climb forever.
-    if (counts && lastDate === today) {
-      set({ items: counts, lastDate: today });
-    } else {
-      const items = zeroedItems();
-      set({ items, lastDate: today });
-      saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
-      saveData(STORAGE_KEYS.DHIKR_LAST_DATE, today);
-    }
+    const items = reconcileItems(counts, lastDate === today);
+    set({ items, lastDate: today });
+    saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
+    saveData(STORAGE_KEYS.DHIKR_LAST_DATE, today);
   },
 
-  // Catches the day rolling over while the app stays open (no restart/reload)
   checkDayRollover: () => {
     const today = todayKey();
     if (get().lastDate === today) return;
-    const items = zeroedItems();
+    const items = reconcileItems(get().items, false);
     set({ items, lastDate: today });
     saveData(STORAGE_KEYS.DHIKR_COUNTS, items);
     saveData(STORAGE_KEYS.DHIKR_LAST_DATE, today);

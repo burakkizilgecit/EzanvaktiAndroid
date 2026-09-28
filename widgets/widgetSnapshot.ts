@@ -9,6 +9,26 @@ import { en } from "../i18n/en";
 import { ar } from "../i18n/ar";
 import type { AppSettings } from "../store/useSettingsStore";
 
+export interface WatchPrayerState {
+  date: string;
+  prayers: Record<string, boolean>;
+}
+
+export interface WatchDhikrItem {
+  id: string;
+  name: string;
+  count: number;
+  target: number;
+  isCustom?: boolean;
+}
+
+export interface WatchState {
+  prayer?: WatchPrayerState;
+  dhikr?: WatchDhikrItem[];
+  offlineDaysAvailable?: number;
+  lastPrayerUpdateAt?: string | null;
+}
+
 const META = [
   ["fajr", "prayerFajr", "☾"],
   ["sunrise", "prayerSunrise", "☼"],
@@ -22,6 +42,7 @@ export function buildWidgetSnapshot(
   location: { lat: number; lng: number; city?: string } | null,
   settings: AppSettings,
   now = new Date(),
+  watch: WatchState = {},
 ) {
   const language = ["tr", "en", "ar"].includes(settings.language)
     ? settings.language
@@ -74,5 +95,17 @@ export function buildWidgetSnapshot(
       upcoming: text.widgetUpcoming,
     },
     reminder: settings.notifications.prayerTimes,
+    watch: {
+      prayer: watch.prayer ?? { date: localDateKey(now), prayers: {} },
+      dhikr: (watch.dhikr ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        count: Math.max(0, Math.trunc(item.count || 0)),
+        target: Math.max(1, Math.trunc(item.target || 1)),
+        isCustom: item.isCustom === true,
+      })),
+      offlineDaysAvailable: Math.max(0, Math.trunc(watch.offlineDaysAvailable ?? days.length)),
+      lastPrayerUpdateAt: watch.lastPrayerUpdateAt ?? new Date(now).toISOString(),
+    },
   };
 }

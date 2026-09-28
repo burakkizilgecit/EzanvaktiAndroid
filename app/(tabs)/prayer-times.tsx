@@ -1,16 +1,17 @@
 import { useNow } from '../../hooks/use-now';
 import { LocationNotice } from '../../components/LocationNotice';
 import { localDateKey } from '../../services/dateService';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 import { usePrayerStore } from '../../store/usePrayerStore';
-import { formatPrayerTime, getNextPrayer , calculatePrayerTimes } from '../../services/prayerService';
+import { formatPrayerTime, getNextPrayer } from '../../services/prayerService';
 import { formatGregorianDate } from '../../services/hijriService';
 import { useTranslation } from '../../i18n';
+import { OptionalPrayerTimesCard } from '../../components/OptionalPrayerTimesCard';
 
 type RekatType = 'farz' | 'sunnet' | 'vacip';
 
@@ -80,6 +81,15 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   header: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, alignItems: 'center' },
   headerTitle: { color: colors.textPrimary, fontSize: fs(FONT_SIZE.xl), fontWeight: '700' },
   headerCity: { color: colors.gold, fontSize: fs(FONT_SIZE.sm), marginTop: 2 },
+  dataStatusCard: { marginHorizontal: SPACING.md, marginBottom: SPACING.xs, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.cardBg, overflow: 'hidden' },
+  dataStatusSummary: { minHeight: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs, gap: SPACING.sm },
+  dataStatusSummaryText: { flex: 1 },
+  dataStatusTitle: { color: colors.textPrimary, fontSize: fs(FONT_SIZE.xs), fontWeight: '700' },
+  dataStatusMeta: { color: colors.textMuted, fontSize: fs(10), marginTop: 2 },
+  dataStatusDetails: { borderTopWidth: 1, borderTopColor: colors.cardBorder, padding: SPACING.sm, gap: 6 },
+  dataStatusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs },
+  dataStatusText: { flex: 1, color: colors.textSecondary, fontSize: fs(FONT_SIZE.xs), lineHeight: fs(18) },
+  dataStatusStrong: { color: colors.textPrimary, fontWeight: '700' },
   dateNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderBottomColor: colors.cardBorder, borderBottomWidth: 1 },
   navBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   dateCenterBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
@@ -135,10 +145,13 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
 
 export default function PrayerTimesScreen() {
   const { colors, fs } = useTheme();
-  const { prayerTimes, location, togglePrayer, getTodayCompletion } = usePrayerStore();
+  const {
+    prayerTimes, location, locationSource, lastPrayerUpdateAt, offlineDaysAvailable,
+    getPrayerTimesForDate, togglePrayer, getTodayCompletion,
+  } = usePrayerStore();
   const [chosenDate, setSelectedDate] = useState<Date | null>(null);
-  const [shownTimes, setShownTimes] = useState(prayerTimes);
   const [infoModal, setInfoModal] = useState<{ key: string; info: PrayerInfo } | null>(null);
+  const [statusExpanded, setStatusExpanded] = useState(false);
   const { t, language } = useTranslation();
   const now = useNow();
   const today = localDateKey(now);
@@ -153,11 +166,11 @@ export default function PrayerTimesScreen() {
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const DAY_KEYS = ['daySun','dayMon','dayTue','dayWed','dayThu','dayFri','daySat'] as const;
   const isToday = selectedDate.toDateString() === now.toDateString();
-
-  useEffect(() => {
-    if (!location) { setShownTimes(null); return; }
-    setShownTimes(calculatePrayerTimes(location.lat, location.lng, selectedDate));
-  }, [selectedDate, location]);
+  const locale = language === 'tr' ? 'tr-TR' : language === 'ar' ? 'ar-SA' : 'en-US';
+  const lastUpdateText = lastPrayerUpdateAt
+    ? new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastPrayerUpdateAt))
+    : t('prayerStatusNever');
+  const shownTimes = location ? getPrayerTimesForDate(selectedDate) : null;
 
   const changeDay = (delta: number) => {
     const d = new Date(selectedDate);
@@ -173,10 +186,46 @@ export default function PrayerTimesScreen() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t('prayerTimesTitle')}</Text>
-        <Text style={styles.headerCity}>{location?.city ?? '...'}</Text>
       </View>
 
       <LocationNotice />
+      {location && (
+        <View style={styles.dataStatusCard}>
+          <TouchableOpacity
+            style={styles.dataStatusSummary}
+            onPress={() => setStatusExpanded(value => !value)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: statusExpanded }}
+          >
+            <Ionicons name="location-outline" size={19} color={colors.gold} />
+            <View style={styles.dataStatusSummaryText}>
+              <Text style={styles.dataStatusTitle} numberOfLines={1}>
+                {location.city} · {t(locationSource === 'manual' ? 'prayerLocationManual' : 'prayerLocationGps')}
+              </Text>
+              <Text style={styles.dataStatusMeta} numberOfLines={2}>
+                {t('prayerLastUpdate')}: {lastUpdateText} · {t('prayerOfflineReady', { days: offlineDaysAvailable })}
+              </Text>
+            </View>
+            <Ionicons name={statusExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+          {statusExpanded && (
+            <View style={styles.dataStatusDetails}>
+              <View style={styles.dataStatusRow}>
+                <Ionicons name="navigate-outline" size={17} color={colors.gold} />
+                <Text style={styles.dataStatusText}>
+                  <Text style={styles.dataStatusStrong}>{t('prayerUsedLocation')}: </Text>
+                  {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+                </Text>
+              </View>
+              <View style={styles.dataStatusRow}>
+                <Ionicons name="calculator-outline" size={17} color={colors.gold} />
+                <Text style={styles.dataStatusText}>{t('prayerCalculationDiyanet')}</Text>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
       {/* Date Navigation */}
       <View style={styles.dateNav}>
         <TouchableOpacity onPress={() => changeDay(-1)} style={styles.navBtn}>
@@ -192,6 +241,8 @@ export default function PrayerTimesScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: SPACING.md }}>
+        {shownTimes && <OptionalPrayerTimesCard times={shownTimes} now={now} isToday={isToday} />}
+
         {/* Prayer Times Cards */}
         {(['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'] as const).map((key) => {
           const time = shownTimes?.[key];
@@ -332,4 +383,3 @@ export default function PrayerTimesScreen() {
     </SafeAreaView>
   );
 }
-

@@ -62,6 +62,7 @@ function Preview() {
           loading={false}
           unreadCount={3}
           onLocation={noop}
+          onSelectLocation={noop}
           onSettings={noop}
           onNotifications={noop}
         />

@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Modal, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import { ISLAMIC_EVENTS, IslamicEvent, getEventName, getEventDescription } from '../data/islamicEvents';
+import { ISLAMIC_EVENTS, IslamicEvent, getEventName, getEventDescription, getEventInfo } from '../data/islamicEvents';
 import { formatGregorianDate } from '../services/hijriService';
 
 type FilterKey = 'all' | 'bayram' | 'kandil' | 'ozel';
+type UpcomingEvent = IslamicEvent & { daysLeft: number; eventDate: Date };
 const FILTER_KEYS: FilterKey[] = ['all', 'bayram', 'kandil', 'ozel'];
 const FILTER_LABEL_KEYS: Record<FilterKey, string> = {
   all: 'upcomingTabAll', bayram: 'upcomingTabEid',
@@ -30,6 +31,7 @@ export default function UpcomingEventsScreen() {
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [selectedEvent, setSelectedEvent] = useState<UpcomingEvent | null>(null);
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
@@ -45,6 +47,8 @@ export default function UpcomingEventsScreen() {
   const filtered = activeFilter === 'all'
     ? allWithDays
     : allWithDays.filter(e => e.type === activeFilter);
+  const selectedInfo = selectedEvent ? getEventInfo(selectedEvent, language) : null;
+  const isRtl = language === 'ar';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -80,7 +84,18 @@ export default function UpcomingEventsScreen() {
                 <MaterialCommunityIcons name={EVENT_ICONS[item.type] as any} size={28} color={color} />
               </View>
               <View style={styles.eventInfo}>
-                <Text style={styles.eventName}>{getEventName(item, language)}</Text>
+                <View style={[styles.eventTitleRow, isRtl && styles.rtlRow]}>
+                  <Text style={[styles.eventName, isRtl && styles.rtlText]}>{getEventName(item, language)}</Text>
+                  <TouchableOpacity
+                    style={styles.infoButton}
+                    onPress={() => setSelectedEvent(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('upcomingInfoButton')}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="information-circle-outline" size={23} color={colors.gold} />
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.eventDate}>{formatGregorianDate(d, language)}</Text>
                 {getEventDescription(item, language) && <Text style={styles.eventDesc}>{getEventDescription(item, language)}</Text>}
               </View>
@@ -92,7 +107,73 @@ export default function UpcomingEventsScreen() {
           );
         }}
       />
+
+      <Modal
+        visible={selectedEvent !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedEvent(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedEvent(null)} />
+          {selectedEvent && selectedInfo && (
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <View style={[styles.modalHeader, isRtl && styles.rtlRow]}>
+                <View style={[styles.modalIcon, { backgroundColor: EVENT_COLORS[selectedEvent.type] + '22' }]}>
+                  <MaterialCommunityIcons
+                    name={EVENT_ICONS[selectedEvent.type] as any}
+                    size={30}
+                    color={EVENT_COLORS[selectedEvent.type]}
+                  />
+                </View>
+                <View style={styles.modalTitleWrap}>
+                  <Text style={[styles.modalTitle, isRtl && styles.rtlText]}>{getEventName(selectedEvent, language)}</Text>
+                  <Text style={[styles.modalDate, isRtl && styles.rtlText]}>{formatGregorianDate(selectedEvent.eventDate, language)}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.modalCloseIcon}
+                  onPress={() => setSelectedEvent(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('upcomingInfoClose')}
+                >
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
+                <InfoSection icon="help-circle-outline" title={t('upcomingInfoWhat')} text={selectedInfo.summary} isRtl={isRtl} styles={styles} colors={colors} />
+                <InfoSection icon="sparkles-outline" title={t('upcomingInfoImportance')} text={selectedInfo.significance} isRtl={isRtl} styles={styles} colors={colors} />
+                <InfoSection icon="heart-outline" title={t('upcomingInfoPractices')} text={selectedInfo.observances} isRtl={isRtl} styles={styles} colors={colors} />
+              </ScrollView>
+
+              <TouchableOpacity style={styles.closeButton} onPress={() => setSelectedEvent(null)} accessibilityRole="button">
+                <Text style={styles.closeButtonText}>{t('upcomingInfoClose')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+function InfoSection({ icon, title, text, isRtl, styles, colors }: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  text: string;
+  isRtl: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  colors: any;
+}) {
+  return (
+    <View style={styles.detailSection}>
+      <View style={[styles.detailHeadingRow, isRtl && styles.rtlRow]}>
+        <Ionicons name={icon} size={20} color={colors.gold} />
+        <Text style={[styles.detailHeading, isRtl && styles.rtlText]}>{title}</Text>
+      </View>
+      <Text style={[styles.detailText, isRtl && styles.rtlText]}>{text}</Text>
+    </View>
   );
 }
 
@@ -109,10 +190,30 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   eventCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACING.md, gap: SPACING.md },
   eventIcon: { width: 56, height: 56, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
   eventInfo: { flex: 1 },
-  eventName: { color: colors.textPrimary, fontSize: FONT_SIZE.md, fontWeight: '700' },
+  eventTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  eventName: { color: colors.textPrimary, fontSize: FONT_SIZE.md, fontWeight: '700', flexShrink: 1 },
+  infoButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.gold + '16' },
   eventDate: { color: colors.textMuted, fontSize: FONT_SIZE.xs, marginTop: 2 },
   eventDesc: { color: colors.textSecondary, fontSize: FONT_SIZE.xs, marginTop: 3 },
   daysBadge: { alignItems: 'center', borderWidth: 2, borderRadius: RADIUS.md, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs, minWidth: 60 },
   daysNum: { fontSize: FONT_SIZE.xxl, fontWeight: '900' },
   daysLabel: { fontSize: 9, fontWeight: '700', textAlign: 'center', letterSpacing: 0.5 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
+  modalSheet: { maxHeight: '82%', backgroundColor: colors.cardBg, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.lg, borderWidth: 1, borderColor: colors.cardBorder },
+  modalHandle: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.textMuted + '66', alignSelf: 'center', marginBottom: SPACING.md },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingBottom: SPACING.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.cardBorder },
+  modalIcon: { width: 54, height: 54, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
+  modalTitleWrap: { flex: 1 },
+  modalTitle: { color: colors.textPrimary, fontSize: fs(20), fontWeight: '800' },
+  modalDate: { color: colors.textMuted, fontSize: fs(12), marginTop: 3 },
+  modalCloseIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  detailScroll: { marginTop: SPACING.sm },
+  detailSection: { paddingVertical: SPACING.sm },
+  detailHeadingRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginBottom: 6 },
+  detailHeading: { color: colors.gold, fontSize: fs(14), fontWeight: '800' },
+  detailText: { color: colors.textSecondary, fontSize: fs(14), lineHeight: fs(21) },
+  closeButton: { minHeight: 48, borderRadius: RADIUS.md, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center', marginTop: SPACING.sm },
+  closeButtonText: { color: colors.background, fontSize: fs(15), fontWeight: '800' },
+  rtlRow: { flexDirection: 'row-reverse' },
+  rtlText: { textAlign: 'right', writingDirection: 'rtl' },
 });

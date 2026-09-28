@@ -67,6 +67,7 @@ export function HomeHero({
   loading,
   unreadCount,
   onLocation,
+  onSelectLocation,
   onSettings,
   onNotifications,
 }: {
@@ -75,6 +76,7 @@ export function HomeHero({
   loading: boolean;
   unreadCount: number;
   onLocation: () => void;
+  onSelectLocation: () => void;
   onSettings: () => void;
   onNotifications: () => void;
 }) {
@@ -98,33 +100,54 @@ export function HomeHero({
       />
       <SafeAreaView edges={["top"]}>
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={onLocation}
-            disabled={loading}
-            accessibilityRole="button"
-            accessibilityLabel={t("homeRefreshLocation")}
+          <View
             style={[
               styles.location,
               { backgroundColor: isDark ? "#081320DD" : "#FFFDF8E8" },
             ]}
           >
-            <Ionicons name="location" color={colors.gold} size={21} />
-            <View style={{ flex: 1 }}>
-              {location?.city && (
-                <Text style={styles.locationLabel}>
-                  {t("homeCurrentLocation")}
+            <TouchableOpacity
+              onPress={onLocation}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={t("homeRefreshLocation")}
+              style={styles.locationTouchable}
+            >
+              <Ionicons name="location" color={colors.gold} size={21} />
+              <View style={{ flex: 1 }}>
+                {location?.city && (
+                  <Text style={styles.locationLabel}>
+                    {t("homeCurrentLocation")}
+                  </Text>
+                )}
+                <Text numberOfLines={1} style={styles.city}>
+                  {location?.city || t("homeRefreshLocation")}
                 </Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onSelectLocation}
+              accessibilityRole="button"
+              accessibilityLabel={t("locationChooseManually")}
+              hitSlop={8}
+              style={styles.locationChevron}
+            >
+              <Ionicons name="chevron-down" color={colors.gold} size={18} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onLocation}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={t("homeRefreshLocation")}
+              hitSlop={8}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.gold} />
+              ) : (
+                <Ionicons name="refresh-outline" size={18} color={colors.gold} />
               )}
-              <Text numberOfLines={1} style={styles.city}>
-                {location?.city || t("homeRefreshLocation")}
-              </Text>
-            </View>
-            {loading ? (
-              <ActivityIndicator color={colors.gold} />
-            ) : (
-              <Ionicons name="refresh-outline" size={18} color={colors.gold} />
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
           <View
             style={[
               styles.headerActions,
@@ -517,6 +540,15 @@ const makeStyles = (
       minHeight: 48,
       paddingHorizontal: 8,
       borderRadius: 16,
+    },
+    locationTouchable: {
+      flex: 1,
+      flexDirection: rtl ? "row-reverse" : "row",
+      gap: 5,
+      alignItems: "center",
+    },
+    locationChevron: {
+      padding: 4,
     },
     city: {
       fontSize: fs(17),

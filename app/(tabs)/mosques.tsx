@@ -254,7 +254,7 @@ export default function MosquesScreen() {
         setCityName('');
         setUserLoc(null);
         setAllMosques([]);
-        setErrorMsg(t('locationUnavailable'));
+        setErrorMsg(t('mosquesLocationPermissionRequired' as any));
         return;
       }
       setUserLoc({ lat, lng });

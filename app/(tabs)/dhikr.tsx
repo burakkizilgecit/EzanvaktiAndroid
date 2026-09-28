@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  StatusBar, Animated, Modal, Dimensions,
+  StatusBar, Animated, Modal, Dimensions, TextInput, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   container:     { flex: 1, backgroundColor: colors.background },
   header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2 },
   headerTitle:   { color: colors.textPrimary, fontSize: fs(FONT_SIZE.xxl), fontWeight: '800' },
+  headerActions: { flexDirection: 'row', gap: SPACING.sm },
   historyBtn:    { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderRadius: RADIUS.md, borderColor: colors.cardBorderActive, borderWidth: 1 },
   tabs:          { flexDirection: 'row', marginHorizontal: SPACING.md, backgroundColor: colors.surface, borderRadius: RADIUS.full, padding: 4, borderColor: colors.cardBorderActive, borderWidth: 1, marginBottom: SPACING.md },
   tab:           { flex: 1, paddingVertical: SPACING.sm, alignItems: 'center', borderRadius: RADIUS.full },
@@ -33,6 +34,7 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   card:          { width: CARD_W, backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: RADIUS.xl, alignItems: 'center', paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm },
   cardDone:      { borderColor: colors.gold },
   cardName:      { color: colors.textMuted, fontSize: fs(9), fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: SPACING.sm, textAlign: 'center' },
+  deleteBtn:     { position: 'absolute', right: 6, top: 6, zIndex: 3, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   ringWrap:      { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },
   ringCenter:    { position: 'absolute', alignItems: 'center' },
   countValue:    { color: colors.textPrimary, fontSize: fs(30), fontWeight: '800', lineHeight: 34, fontVariant: ['tabular-nums'] },
@@ -66,14 +68,23 @@ const makeStyles = (colors: any, fs: (n: number) => number) => StyleSheet.create
   modalTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(200,168,83,0.1)', borderRadius: RADIUS.md, padding: SPACING.md },
   modalTotalLabel:{ color: colors.textSecondary, fontSize: fs(FONT_SIZE.sm), fontWeight: '600' },
   modalTotalValue:{ color: colors.gold, fontSize: fs(FONT_SIZE.lg), fontWeight: '800' },
+  fieldLabel:    { color: colors.textSecondary, fontSize: fs(FONT_SIZE.sm), fontWeight: '600', marginBottom: 6 },
+  input:         { color: colors.textPrimary, backgroundColor: colors.surface, borderColor: colors.cardBorderActive, borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 12, fontSize: fs(FONT_SIZE.md), marginBottom: SPACING.md },
+  formError:     { color: colors.red, fontSize: fs(FONT_SIZE.xs), marginTop: -8, marginBottom: SPACING.md },
+  formActions:   { flexDirection: 'row', gap: SPACING.sm },
+  formButton:    { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, paddingVertical: 13, borderWidth: 1, borderColor: colors.cardBorderActive },
+  formButtonPrimary: { backgroundColor: colors.gold, borderColor: colors.gold },
+  formButtonText:{ color: colors.textSecondary, fontSize: fs(FONT_SIZE.sm), fontWeight: '700' },
+  formButtonTextPrimary: { color: colors.background },
 });
 
 const CATEGORY_IDS = ['tespih', 'salavat', 'istigfar', 'diger'] as const;
 type CategoryId = typeof CATEGORY_IDS[number];
 
-function DhikrCard({ item, onPress, colors, fs }: {
+function DhikrCard({ item, onPress, onDelete, colors, fs }: {
   item: { id: string; name: string; count: number; target: number };
   onPress: () => void;
+  onDelete?: () => void;
   colors: any;
   fs: (n: number) => number;
 }) {
@@ -94,6 +105,16 @@ function DhikrCard({ item, onPress, colors, fs }: {
   return (
     <TouchableOpacity activeOpacity={0.8} onPress={handlePress}>
       <Animated.View style={[styles.card, done && styles.cardDone, { transform: [{ scale: scaleAnim }] }]}>
+        {onDelete && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Delete"
+            style={styles.deleteBtn}
+            onPress={(event) => { event.stopPropagation(); onDelete(); }}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.red} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
         <View style={styles.ringWrap}>
           <Svg width={108} height={108} viewBox="0 0 108 108">
@@ -127,8 +148,12 @@ const CAT_KEY_MAP: Record<CategoryId, string> = {
 export default function DhikrScreen() {
   const { colors, fs } = useTheme();
   const { t } = useTranslation();
-  const { items, activeCategory, increment, reset, setCategory, getTotalToday, getWeeklyHistory } = useDhikrStore();
+  const { items, activeCategory, increment, reset, addCustomDhikr, removeCustomDhikr, setCategory, getTotalToday, getWeeklyHistory } = useDhikrStore();
   const [showHistory, setShowHistory] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customTarget, setCustomTarget] = useState('33');
+  const [formError, setFormError] = useState('');
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
 
 
@@ -142,15 +167,50 @@ export default function DhikrScreen() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  const closeAddModal = () => {
+    setShowAdd(false);
+    setCustomName('');
+    setCustomTarget('33');
+    setFormError('');
+  };
+
+  const handleAddCustom = () => {
+    const name = customName.trim();
+    const target = Number(customTarget);
+    if (!name) { setFormError(t('dhikrNameRequired' as any)); return; }
+    if (!Number.isInteger(target) || target < 1 || target > 100000) {
+      setFormError(t('dhikrTargetInvalid' as any));
+      return;
+    }
+    addCustomDhikr(name, target);
+    closeAddModal();
+  };
+
+  const confirmDelete = (id: string) => {
+    Alert.alert(
+      t('dhikrDeleteTitle' as any),
+      t('dhikrDeleteMessage' as any),
+      [
+        { text: t('dhikrCancel' as any), style: 'cancel' },
+        { text: t('dhikrDelete' as any), style: 'destructive', onPress: () => removeCustomDhikr(id) },
+      ],
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t('dhikrTitle')}</Text>
-        <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(true)}>
-          <MaterialCommunityIcons name="chart-bar" size={22} color={colors.gold} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('dhikrAdd' as any)} style={styles.historyBtn} onPress={() => setShowAdd(true)}>
+            <Ionicons name="add" size={24} color={colors.gold} />
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('dhikrHistory')} style={styles.historyBtn} onPress={() => setShowHistory(true)}>
+            <MaterialCommunityIcons name="chart-bar" size={22} color={colors.gold} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Category Tabs */}
@@ -176,6 +236,7 @@ export default function DhikrScreen() {
               key={item.id}
               item={item}
               onPress={() => handleIncrement(item.id)}
+              onDelete={item.isCustom ? () => confirmDelete(item.id) : undefined}
               colors={colors}
               fs={fs}
             />
@@ -217,6 +278,50 @@ export default function DhikrScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Add custom dhikr modal */}
+      <Modal visible={showAdd} transparent animationType="slide" onRequestClose={closeAddModal}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('dhikrAddTitle' as any)}</Text>
+              <TouchableOpacity onPress={closeAddModal} style={styles.modalClose}>
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>{t('dhikrName' as any)}</Text>
+            <TextInput
+              value={customName}
+              onChangeText={(value) => { setCustomName(value); setFormError(''); }}
+              placeholder={t('dhikrName' as any)}
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              maxLength={60}
+              autoFocus
+              returnKeyType="next"
+            />
+            <Text style={styles.fieldLabel}>{t('dhikrTarget' as any)}</Text>
+            <TextInput
+              value={customTarget}
+              onChangeText={(value) => { setCustomTarget(value.replace(/[^0-9]/g, '')); setFormError(''); }}
+              placeholder="33"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+            {!!formError && <Text style={styles.formError}>{formError}</Text>}
+            <View style={styles.formActions}>
+              <TouchableOpacity style={styles.formButton} onPress={closeAddModal}>
+                <Text style={styles.formButtonText}>{t('dhikrCancel' as any)}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.formButton, styles.formButtonPrimary]} onPress={handleAddCustom}>
+                <Text style={[styles.formButtonText, styles.formButtonTextPrimary]}>{t('dhikrSave' as any)}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* History Modal */}
       <Modal visible={showHistory} transparent animationType="slide" onRequestClose={() => setShowHistory(false)}>

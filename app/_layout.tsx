@@ -1,10 +1,10 @@
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState, View, Text, ActivityIndicator, Button } from 'react-native';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
-import { syncNativeWidgets } from '../widgets/syncNativeWidgets';
+import { subscribeToNativeWatchActions, syncNativeWidgets } from '../widgets/syncNativeWidgets';
 import { isNotificationPreview } from '../services/notificationRuntime';
 import { usePrayerStore } from '../store/usePrayerStore';
 import { useDhikrStore } from '../store/useDhikrStore';
@@ -15,6 +15,8 @@ import { useTutorialStore } from '../store/useTutorialStore';
 import { addNotificationResponseListener, setupNotificationChannel, setupNotificationHandler, requestNotificationPermission, scheduleAllNotifications } from '../services/notificationService';
 import { registerNotificationRenewal } from '../services/backgroundNotifications';
 import { localDateKey } from '../services/dateService';
+import { RateAppPrompt } from '../components/RateAppPrompt';
+import { AppUpdatePrompt } from '../components/AppUpdatePrompt';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -25,13 +27,24 @@ function RootLayoutInner() {
   const [bootError, setBootError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const [updateCheckComplete, setUpdateCheckComplete] = useState(false);
+  const [storeUpdateAvailable, setStoreUpdateAvailable] = useState(false);
   const location = usePrayerStore(s => s.location);
   const locationLoading = usePrayerStore(s => s.locationLoading);
   const settings = useSettingsStore(s => s.settings);
   const { completed: tutorialDone, loaded: tutorialLoaded } = useTutorialStore();
+  const handleUpdateCheckComplete = useCallback((available: boolean) => {
+    setStoreUpdateAvailable(available);
+    setUpdateCheckComplete(true);
+  }, []);
 
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const subscription = subscribeToNativeWatchActions();
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -83,7 +96,7 @@ function RootLayoutInner() {
   useEffect(() => {
     const listener = addNotificationResponseListener(response => {
       const type = response.notification.request.content.data?.type;
-      if (type === 'prayer' || type === 'early') router.push('/(tabs)/prayer-times');
+      if (type === 'prayer' || type === 'early' || type === 'optionalPrayer') router.push('/(tabs)/prayer-times');
       else if (type === 'dhikr') router.push('/(tabs)/dhikr');
       else if (type === 'dua') router.push('/(tabs)/duas');
       else if (type === 'islamicDay') router.push('/upcoming-events');
@@ -119,6 +132,7 @@ function RootLayoutInner() {
         <Stack.Screen name="statistics" />
         <Stack.Screen name="daily-goals" />
         <Stack.Screen name="upcoming-events" />
+        <Stack.Screen name="select-location" options={{ presentation: 'modal' }} />
         <Stack.Screen name="quran" />
         <Stack.Screen name="quran-surah" />
         <Stack.Screen name="tutorial" options={{ gestureEnabled: false }} />
@@ -129,6 +143,8 @@ function RootLayoutInner() {
         : settings.language === 'en'
           ? 'Expo Go preview: reminders and home screen widgets require an installed Android build.'
           : 'Expo Go önizlemesi: Hatırlatmalar ve ana ekran widgetları için Android uygulama derlemesi gerekir.'}</Text></View>}
+      <AppUpdatePrompt enabled={ready && tutorialLoaded && tutorialDone} onCheckComplete={handleUpdateCheckComplete} />
+      <RateAppPrompt enabled={ready && tutorialLoaded && tutorialDone && updateCheckComplete && !storeUpdateAvailable} />
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
   );

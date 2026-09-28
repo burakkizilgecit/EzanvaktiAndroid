@@ -44,6 +44,18 @@ const SLIDES: Slide[] = [
     desc: 'Konumunuza göre hesaplanan günlük vakitler. Kıldığınız namazları işaretleyin, haftalık takibi görün.',
   },
   {
+    id: '3a', type: 'regular', iconLib: 'mci', icon: 'hands-pray',
+    accent: '#D4A84B',
+    title: 'Nafile Namaz Vakitleri',
+    desc: 'İşrak, Duha ve Evvâbin için uygun zaman aralıklarını görün. Kerahat vakitlerini kontrol edin ve isterseniz hatırlatmaları açın.',
+  },
+  {
+    id: '3b', type: 'regular', iconLib: 'ion', icon: 'cloud-offline-outline',
+    accent: '#38BDF8',
+    title: 'İnternetsiz de Yanınızda',
+    desc: 'En az 30 günlük namaz vakti cihazınızda hazır tutulur. İnternet bağlantısı kesildiğinde de vakitleri görmeye devam edin.',
+  },
+  {
     id: '4', type: 'regular', iconLib: 'ion', icon: 'compass-outline',
     accent: '#34D399',
     title: 'Kıble & En Yakın Cami',
@@ -65,7 +77,7 @@ const SLIDES: Slide[] = [
     id: '7', type: 'regular', iconLib: 'ion', icon: 'notifications-outline',
     accent: '#FB923C',
     title: 'Bildirimler',
-    desc: 'Namaz vakitlerinde ve 10 dakika öncesinde hatırlatma alın. Ayarlar\'dan istediğinizi açıp kapatın.',
+    desc: 'Namaz vakitlerinde ve 10 dakika öncesinde hatırlatma alın. Varsayılan olarak telefonunuzun sistem bildirim sesi kullanılır; Ayarlar’dan isterseniz ezan veya ilahi seçebilirsiniz.',
   },
   {
     id: '8', type: 'theme-picker', iconLib: 'ion', icon: 'color-palette-outline',

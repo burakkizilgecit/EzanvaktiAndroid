@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,6 +21,11 @@ import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.ViewManager
 import com.islamicibadet.app.R
+import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.PutDataMapRequest
+import com.google.android.gms.wearable.Wearable
+import com.google.android.gms.wearable.WearableListenerService
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
@@ -30,6 +36,14 @@ class PrayerWidgetsPackage : ReactPackage {
 }
 class PrayerWidgetsModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   override fun getName() = "PrayerWidgets"
+  @ReactMethod fun addListener(eventName: String) {}
+  @ReactMethod fun removeListeners(count: Int) {}
+  @ReactMethod fun consumeActions(promise: Promise) {
+    val prefs = context.getSharedPreferences("prayer_widgets", Context.MODE_PRIVATE)
+    val queued = prefs.getString("watch_actions", "[]") ?: "[]"
+    prefs.edit().putString("watch_actions", "[]").apply()
+    promise.resolve(queued)
+  }
   @ReactMethod fun publish(json: String, promise: Promise) {
     try {
       val value = JSONObject(json)
@@ -37,8 +51,28 @@ class PrayerWidgetsModule(private val context: ReactApplicationContext) : ReactC
       require(value.getJSONArray("days").length() <= 32)
       context.getSharedPreferences("prayer_widgets", Context.MODE_PRIVATE).edit().putString("snapshot", json).apply()
       NativePrayerWidgets.updateAll(context)
-      promise.resolve(null)
+      val request = PutDataMapRequest.create("/prayer/snapshot").apply {
+        dataMap.putString("json", json)
+        dataMap.putLong("publishedAt", System.currentTimeMillis())
+      }.asPutDataRequest().setUrgent()
+      Wearable.getDataClient(context).putDataItem(request)
+        .addOnSuccessListener { promise.resolve(null) }
+        .addOnFailureListener { promise.resolve(null) }
     } catch (e: Exception) { promise.reject("WIDGET_PUBLISH", e) }
+  }
+}
+class WearActionService : WearableListenerService() {
+  override fun onMessageReceived(event: MessageEvent) {
+    if (event.path != "/prayer/action") return
+    val action = String(event.data, Charsets.UTF_8)
+    runCatching {
+      JSONObject(action)
+      val prefs = getSharedPreferences("prayer_widgets", Context.MODE_PRIVATE)
+      val queue = try { JSONArray(prefs.getString("watch_actions", "[]")) } catch (_: Exception) { JSONArray() }
+      queue.put(action)
+      while (queue.length() > 100) queue.remove(0)
+      prefs.edit().putString("watch_actions", queue.toString()).apply()
+    }
   }
 }
 open class PrayerWidgetBase : AppWidgetProvider() {
@@ -92,6 +126,8 @@ object NativePrayerWidgets {
   }
   private fun render(context: Context,manager:AppWidgetManager,id:Int,small:Boolean,s:JSONObject?,today:JSONObject?,next:JSONObject?,dark:Boolean,now:Long) {
     val views=RemoteViews(context.packageName,if(small) R.layout.prayer_widget_next else R.layout.prayer_widget_times)
+    val options=manager.getAppWidgetOptions(id)
+    val onKeyguard=options.getInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY,AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN)==AppWidgetProviderInfo.WIDGET_CATEGORY_KEYGUARD
     val primary=Color.parseColor(if(dark) "#F8FAFC" else "#1F2937")
     val muted=Color.parseColor(if(dark) "#AAB8CD" else "#6B6257")
     val gold=Color.parseColor(if(dark) "#E7B34E" else "#94630C")
@@ -114,14 +150,14 @@ object NativePrayerWidgets {
     views.setContentDescription(R.id.widget_root,if(available) "${s?.optString("city")}, ${label(s,"next",context)}: ${next?.optString("label")} ${next?.optString("time")}" else label(s,"refresh",context))
     if(small) {
       views.setViewVisibility(R.id.widget_details,if(available)View.VISIBLE else View.GONE)
-      val compact=manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,180)<220
-      val short=manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,100)<130
-      views.setViewVisibility(R.id.widget_city,if(compact||short)View.GONE else View.VISIBLE)
+      val compact=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,180)<220
+      val short=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,100)<130
+      views.setViewVisibility(R.id.widget_city,if(onKeyguard||compact||short)View.GONE else View.VISIBLE)
       views.setTextViewText(R.id.widget_heading,label(s,"next",context));views.setTextColor(R.id.widget_heading,muted)
       views.setTextViewText(R.id.widget_prayer,next?.optString("label") ?: "");views.setTextColor(R.id.widget_prayer,primary)
       views.setTextViewText(R.id.widget_time,next?.optString("time") ?: "");views.setTextColor(R.id.widget_time,muted)
       views.setTextViewText(R.id.widget_symbol,next?.optString("icon") ?: "☀");views.setTextColor(R.id.widget_symbol,gold)
-      views.setViewVisibility(R.id.widget_symbol,if(compact)View.GONE else View.VISIBLE)
+      views.setViewVisibility(R.id.widget_symbol,if(onKeyguard||compact)View.GONE else View.VISIBLE)
       views.setTextColor(R.id.widget_countdown,gold)
       views.setTextViewTextSize(R.id.widget_countdown,TypedValue.COMPLEX_UNIT_SP,if(compact)24f else 28f)
       views.setChronometerCountDown(R.id.widget_countdown,true)
@@ -131,9 +167,9 @@ object NativePrayerWidgets {
       views.setTextViewText(R.id.widget_day,today?.optString("dayLabel") ?: "");views.setTextColor(R.id.widget_day,muted)
       views.setViewVisibility(R.id.widget_columns,if(available)View.VISIBLE else View.GONE)
       views.removeAllViews(R.id.widget_columns)
-      val list=today?.optJSONArray("entries")
-      for(i in 0 until (list?.length() ?: 0)) {
-        val entry=list!!.getJSONObject(i)
+      val source=today?.optJSONArray("entries")
+      val list=(0 until (source?.length() ?: 0)).mapNotNull { source?.optJSONObject(it) }.filter { !onKeyguard || it.optString("key")!="sunrise" }
+      for(entry in list) {
         val active=entry.optLong("at")==next?.optLong("at")
         val past=entry.optLong("at")<=now
         val color=if(active)gold else if(past)orange else green

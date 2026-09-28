@@ -90,6 +90,7 @@ const makeStyles = (colors: any, fs: (n: number) => number) =>
       padding: SPACING.lg,
       paddingBottom: SPACING.xl,
       marginTop: 60,
+      maxHeight: "85%",
     },
     sheetHandle: {
       width: 36,
@@ -521,8 +522,9 @@ export default function HomeScreen() {
           activeOpacity={1}
           onPress={() => setShowNotifSettings(false)}
         >
-          <View
+          <ScrollView
             style={styles.notifSettingsSheet}
+            showsVerticalScrollIndicator={false}
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.sheetHandle} />
@@ -609,6 +611,23 @@ export default function HomeScreen() {
               })}
             </View>
 
+            {/* Konum seçici */}
+            <View style={styles.themeRow}>
+              <Ionicons name="location-outline" size={16} color={colors.textMuted} />
+              <Text style={styles.themeLabel}>{t("settingsLocation" as any)}:</Text>
+              <TouchableOpacity
+                style={styles.themeBtn}
+                onPress={() => {
+                  setShowNotifSettings(false);
+                  router.push('/select-location');
+                }}
+              >
+                <Text style={styles.themeBtnText}>
+                  {location?.city ?? t("locationChooseManually" as any)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Dil seçici */}
             <View style={styles.notifLangRow}>
               <Ionicons
@@ -672,6 +691,11 @@ export default function HomeScreen() {
                   icon: "bell-ring-outline",
                 },
                 {
+                  key: "optionalPrayers",
+                  labelKey: "notifOptionalPrayers",
+                  icon: "weather-sunset-up",
+                },
+                {
                   key: "dailyHadith",
                   labelKey: "notifDailyHadith",
                   icon: "format-quote-close",
@@ -719,7 +743,7 @@ export default function HomeScreen() {
                 />
               </View>
             ))}
-          </View>
+          </ScrollView>
         </TouchableOpacity>
       </Modal>
 
@@ -730,6 +754,7 @@ export default function HomeScreen() {
           loading={loading}
           unreadCount={unreadCount}
           onLocation={() => refreshLocation().catch(console.warn)}
+          onSelectLocation={() => router.push('/select-location')}
           onSettings={() => setShowNotifSettings(true)}
           onNotifications={() => setShowNotifs(true)}
         />

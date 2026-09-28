@@ -18,7 +18,7 @@ const empty = text(
 );
 const resources = {
   "layout/prayer_widget_next.xml": root(
-    `${text("widget_city", 13, 'android:maxLines="1" android:ellipsize="end" android:textStyle="bold"')}${empty}<LinearLayout android:id="@+id/widget_details" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">${text("widget_symbol", 42, 'android:layout_marginEnd="10dp"')}<LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">${text("widget_heading", 10, 'android:maxLines="1"')}${text("widget_prayer", 21, 'android:textStyle="bold" android:maxLines="1" android:ellipsize="end"')}<Chronometer android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif-medium" android:textDirection="ltr" android:format="%s" android:countDown="true"/>${text("widget_time", 14, 'android:textDirection="ltr"')}</LinearLayout></LinearLayout>`,
+    `${empty}<LinearLayout android:id="@+id/widget_details" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">${text("widget_symbol", 36, 'android:layout_marginEnd="8dp"')}<LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">${text("widget_heading", 9, 'android:maxLines="1"')}<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical"><LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content">${text("widget_prayer", 18, 'android:textStyle="bold" android:maxLines="1" android:ellipsize="end"')}</LinearLayout>${text("widget_time", 13, 'android:textDirection="ltr" android:layout_marginStart="4dp"')}</LinearLayout><Chronometer android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="24sp" android:textStyle="bold" android:fontFamily="sans-serif-medium" android:textDirection="ltr" android:format="%s" android:countDown="true"/></LinearLayout></LinearLayout>`,
   ),
   "layout/prayer_widget_times.xml": root(
     `<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">${text("widget_city", 17, 'android:layout_weight="1" android:maxLines="1" android:ellipsize="end" android:textStyle="bold"')}<LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">${text("widget_date", 13)}${text("widget_day", 12)}</LinearLayout></LinearLayout>${empty}<LinearLayout android:id="@+id/widget_columns" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="4dp" android:orientation="horizontal" android:gravity="center_vertical"/>`,
@@ -34,16 +34,16 @@ for (const [name, color, border] of [
   resources[`drawable/prayer_widget_${name}.xml`] =
     `<shape ${android}><solid android:color="${color}"/><corners android:radius="22dp"/><stroke android:width="1dp" android:color="${border}"/></shape>`;
 // "next" = compact next-prayer widget: wide and short (2x1).
-// "times" = full prayer-list widget: wide and short (5x1) so all entries sit side by side in one row.
+// "times" = responsive 4x2 prayer-list widget. On keyguard it omits sunrise and shows the five prayers.
 const WIDGET_SIZES = {
   next: { minWidth: 150, minHeight: 45, minResizeWidth: 140, minResizeHeight: 40, targetCellWidth: 2, targetCellHeight: 1 },
-  times: { minWidth: 360, minHeight: 88, minResizeWidth: 340, minResizeHeight: 75, targetCellWidth: 5, targetCellHeight: 1 },
+  times: { minWidth: 280, minHeight: 110, minResizeWidth: 260, minResizeHeight: 80, targetCellWidth: 4, targetCellHeight: 2 },
 };
 for (const small of [false, true]) {
   const key = small ? "next" : "times";
   const sz = WIDGET_SIZES[key];
   resources[`xml/prayer_${key}_info.xml`] =
-    `<appwidget-provider ${android} android:minWidth="${sz.minWidth}dp" android:minHeight="${sz.minHeight}dp" android:minResizeWidth="${sz.minResizeWidth}dp" android:minResizeHeight="${sz.minResizeHeight}dp" android:targetCellWidth="${sz.targetCellWidth}" android:targetCellHeight="${sz.targetCellHeight}" android:resizeMode="horizontal|vertical" android:updatePeriodMillis="1800000" android:widgetCategory="home_screen" android:initialLayout="@layout/prayer_widget_${key}" android:previewLayout="@layout/prayer_widget_${key}" android:description="@string/prayer_widget_${key}"/>`;
+    `<appwidget-provider ${android} android:minWidth="${sz.minWidth}dp" android:minHeight="${sz.minHeight}dp" android:minResizeWidth="${sz.minResizeWidth}dp" android:minResizeHeight="${sz.minResizeHeight}dp" android:targetCellWidth="${sz.targetCellWidth}" android:targetCellHeight="${sz.targetCellHeight}" android:resizeMode="horizontal|vertical" android:updatePeriodMillis="1800000" android:widgetCategory="home_screen|keyguard" android:initialLayout="@layout/prayer_widget_${key}" android:initialKeyguardLayout="@layout/prayer_widget_${key}" android:previewLayout="@layout/prayer_widget_${key}" android:description="@string/prayer_widget_${key}"/>`;
 }
 const locales = {
   values: [
@@ -90,6 +90,35 @@ function writeResources(projectRoot) {
 }
 function patchManifest(manifest) {
   const app = manifest.application[0];
+  app.service = (app.service || []).filter(
+    (service) => service.$?.["android:name"] !== ".widget.WearActionService",
+  );
+  app.service.push({
+    $: {
+      "android:name": ".widget.WearActionService",
+      "android:exported": "true",
+    },
+    "intent-filter": [
+      {
+        action: [
+          {
+            $: {
+              "android:name": "com.google.android.gms.wearable.MESSAGE_RECEIVED",
+            },
+          },
+        ],
+        data: [
+          {
+            $: {
+              "android:scheme": "wear",
+              "android:host": "*",
+              "android:path": "/prayer/action",
+            },
+          },
+        ],
+      },
+    ],
+  });
   app.receiver = (app.receiver || []).filter(
     (r) =>
       ![".widget.PrayerWidget", ".widget.NextPrayerWidget"].includes(

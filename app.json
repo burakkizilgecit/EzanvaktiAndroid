@@ -2,14 +2,14 @@
   "expo": {
     "name": "Ezan Vakti",
     "slug": "islamicibadet",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "islamicibadet",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.islamicibadet.app",
-      "versionCode": 47,
+      "versionCode": 54,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyC__fpddD5_gO__BBU54BIJZWWMU-ACkys"
@@ -87,6 +87,7 @@
       "./plugins/withRingtoneQuery",
       "expo-background-task",
       "./plugins/withPrayerWidgets",
+      "./plugins/withWearOS",
       "expo-font",
       "expo-image",
       "expo-sharing",

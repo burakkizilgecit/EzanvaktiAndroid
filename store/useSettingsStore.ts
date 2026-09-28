@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { saveData, loadData, STORAGE_KEYS } from '../services/storageService';
 
-export type NotificationSound = 'ezan' | 'ilahi' | 'custom';
+export type NotificationSound = 'default' | 'ezan' | 'ilahi' | 'custom';
 export type Language = 'tr' | 'en' | 'ar';
 
 export interface AppSettings {
+  settingsVersion: number;
   notifications: {
     prayerTimes: boolean;
     earlyReminder: boolean;
@@ -12,6 +13,7 @@ export interface AppSettings {
     dailyDua: boolean;
     dhikrReminder: boolean;
     islamicDays: boolean;
+    optionalPrayers: boolean;
   };
   silentHours: { start: string; end: string };
   vibration: boolean;
@@ -26,6 +28,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  settingsVersion: 2,
   notifications: {
     prayerTimes: true,
     earlyReminder: true,
@@ -33,11 +36,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     dailyDua: true,
     dhikrReminder: true,
     islamicDays: true,
+    optionalPrayers: false,
   },
   silentHours: { start: '22:00', end: '07:00' },
   vibration: true,
   calculationMethod: 'Turkey',
-  notificationSound: 'ezan',
+  notificationSound: 'default',
   language: 'tr',
   theme: 'dark',
   fontSize: 'normal',
@@ -89,8 +93,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 }));
 
 export function normalizeSettings(data: Partial<AppSettings> | null): AppSettings {
+  const migratedSound = data && (data.settingsVersion ?? 1) < 2 && data.notificationSound === 'ezan' ? 'default' : data?.notificationSound;
   return {
-    ...DEFAULT_SETTINGS, ...data,
+    ...DEFAULT_SETTINGS, ...data, settingsVersion: 2,
+    notificationSound: migratedSound ?? DEFAULT_SETTINGS.notificationSound,
     notifications: { ...DEFAULT_SETTINGS.notifications, ...data?.notifications },
     silentHours: { ...DEFAULT_SETTINGS.silentHours, ...data?.silentHours },
   };

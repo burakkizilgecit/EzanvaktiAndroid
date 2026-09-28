@@ -1,0 +1,19 @@
+# EAS Build upload exclusions
+node_modules/
+.expo/
+dist/
+web-build/
+.expo-export-check/
+.android-build-home/
+.android-user-home/
+.gradle-user-home/
+.npm-cache-eas/
+.idea/
+.vscode/
+.git/
+*.log
+*.apk
+*.aab
+google-service-account.json
+android/
+ios/

@@ -71,5 +71,9 @@ export function formatPrayerTime(date: Date | string): string {
 }
 
 export function calculateQiblaDirection(lat: number, lng: number): number {
-  return Qibla(new Coordinates(lat, lng));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    throw new RangeError('Invalid coordinates for Qibla calculation');
+  }
+  const bearing = Qibla(new Coordinates(lat, lng));
+  return ((bearing % 360) + 360) % 360;
 }

@@ -2,7 +2,7 @@ import { LocationNotice } from '../../components/LocationNotice';
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, StatusBar, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Magnetometer } from 'expo-sensors';
+import * as Location from 'expo-location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -50,8 +50,10 @@ export default function QiblaScreen() {
   const [hasPermission, setHasPerm]   = useState(false);
   const [isAligned, setIsAligned]     = useState(false);
   const [displayMag, setDisplayMag]   = useState(0);
+  const [headingAccuracy, setHeadingAccuracy] = useState(0);
+  const [usingTrueNorth, setUsingTrueNorth] = useState(false);
 
-  const rawMag     = useRef(0);
+  const rawMag     = useRef<number | null>(null);
   const qiblaRef   = useRef(0);
   const compassAcc = useRef(0);
   const arrowAcc   = useRef(0);
@@ -72,35 +74,51 @@ export default function QiblaScreen() {
   useEffect(() => {
     if (!location) return;
     let disposed = false;
-    let sub: ReturnType<typeof Magnetometer.addListener> | undefined;
+    let sub: Location.LocationSubscription | undefined;
+
     (async () => {
-      const { granted } = await Magnetometer.requestPermissionsAsync();
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== 'granted' && permission.canAskAgain) {
+        permission = await Location.requestForegroundPermissionsAsync();
+      }
       if (disposed) return;
-      setHasPerm(granted);
-      if (!granted) return;
 
-      Magnetometer.setUpdateInterval(50);
-      sub = Magnetometer.addListener(({ x, y }) => {
-        let raw = Math.atan2(-x, y) * (180 / Math.PI);
-        raw = ((raw % 360) + 360) % 360;
+      sub = await Location.watchHeadingAsync(({ trueHeading, magHeading, accuracy }) => {
+        if (disposed) return;
+        const hasTrueHeading = Number.isFinite(trueHeading) && trueHeading >= 0;
+        const measured = hasTrueHeading ? trueHeading : magHeading;
+        if (!Number.isFinite(measured) || measured < 0) return;
+        setHasPerm(true);
 
-        rawMag.current = ((rawMag.current + LOW_PASS * shortestDiff(rawMag.current, raw)) % 360 + 360) % 360;
-        const mag = rawMag.current;
+        const normalizedMeasured = ((measured % 360) + 360) % 360;
+        const previous = rawMag.current;
+        const heading = previous == null
+          ? normalizedMeasured
+          : ((previous + LOW_PASS * shortestDiff(previous, normalizedMeasured)) % 360 + 360) % 360;
+        rawMag.current = heading;
+        setHeadingAccuracy(accuracy);
+        setUsingTrueNorth(hasTrueHeading);
 
-        const tCompass = (360 - mag) % 360;
+        const tCompass = (360 - heading) % 360;
         compassAcc.current += shortestDiff(((compassAcc.current % 360) + 360) % 360, tCompass);
 
-        const tArrow = ((qiblaRef.current - mag) % 360 + 360) % 360;
+        const tArrow = ((qiblaRef.current - heading) % 360 + 360) % 360;
         arrowAcc.current += shortestDiff(((arrowAcc.current % 360) + 360) % 360, tArrow);
 
-        setIsAligned(Math.abs(((tArrow + 180) % 360) - 180) < 5);
-        setDisplayMag(Math.round(mag));
+        const reliable = accuracy >= 2;
+        setIsAligned(reliable && Math.abs(((tArrow + 180) % 360) - 180) < 5);
+        setDisplayMag(Math.round(heading) % 360);
 
         Animated.spring(compassAnim, { toValue: compassAcc.current, useNativeDriver: true, tension: 55, friction: 11 }).start();
-        Animated.spring(arrowAnim,   { toValue: arrowAcc.current,   useNativeDriver: true, tension: 55, friction: 11 }).start();
-      });
+        Animated.spring(arrowAnim, { toValue: arrowAcc.current, useNativeDriver: true, tension: 55, friction: 11 }).start();
+      }, () => { if (!disposed) setHasPerm(false); });
     })().catch(() => { if (!disposed) setHasPerm(false); });
-    return () => { disposed = true; sub?.remove(); };
+
+    return () => {
+      disposed = true;
+      sub?.remove();
+      rawMag.current = null;
+    };
   }, [location, arrowAnim, compassAnim]);
 
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
@@ -253,7 +271,7 @@ export default function QiblaScreen() {
         <View style={styles.infoBox}>
           <Ionicons name="compass-outline" size={22} color={colors.gold} />
           <Text style={styles.infoLabel}>{t('qiblaCompass')}</Text>
-          <Text style={styles.infoValue}>{hasPermission ? `${displayMag}°` : '--'}</Text>
+          <Text style={styles.infoValue}>{hasPermission ? `${usingTrueNorth && headingAccuracy >= 2 ? '' : '~'}${displayMag}°` : '--'}</Text>
         </View>
 
         <View style={[styles.infoBox, styles.infoBoxGold, isAligned && styles.infoBoxGreen]}>
@@ -286,6 +304,13 @@ export default function QiblaScreen() {
         <View style={styles.permBanner}>
           <Ionicons name="warning-outline" size={18} color={colors.gold} />
           <Text style={styles.permText}>{t('qiblaSensorNote')}</Text>
+        </View>
+      )}
+
+      {hasPermission && headingAccuracy < 2 && (
+        <View style={styles.permBanner}>
+          <Ionicons name="warning-outline" size={18} color={colors.gold} />
+          <Text style={styles.permText}>{t('qiblaLowAccuracy' as any)}</Text>
         </View>
       )}
 

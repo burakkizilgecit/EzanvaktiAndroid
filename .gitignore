@@ -41,3 +41,15 @@ app-example
 # generated native folders
 /ios
 /android
+
+# local build/tooling caches
+.android-build-home/
+.android-user-home/
+.gradle-user-home/
+.idea/
+.npm-cache-eas/
+.expo-export-check/
+**/.gradle/
+huawei-watch/oh_modules/
+huawei-watch/build/
+huawei-watch/**/build/

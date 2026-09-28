@@ -7,13 +7,14 @@ import { en } from '../i18n/en';
 import { ar } from '../i18n/ar';
 import { getDailyHadith } from '../data/hadiths';
 import { getDailyDua } from '../data/duas';
+import { optionalPrayerReminderTimes } from './optionalPrayerService';
 
 export interface PlannedNotification {
   identifier: string;
   date: Date;
   title: string;
   body: string;
-  type: 'prayer' | 'early' | 'dhikr' | 'hadith' | 'dua' | 'islamicDay';
+  type: 'prayer' | 'early' | 'optionalPrayer' | 'dhikr' | 'hadith' | 'dua' | 'islamicDay';
 }
 
 export function isInSilentHours(date: Date, start: string, end: string): boolean {
@@ -34,7 +35,9 @@ export function buildNotificationPlan(
   const language = settings.language;
   const t = ({ tr, en, ar }[language] ?? tr);
   const add = (item: PlannedNotification) => {
-    if (item.date > now && !isInSilentHours(item.date, settings.silentHours.start, settings.silentHours.end)) plan.push(item);
+    const mustAlertForPrayer = item.type === 'prayer' || item.type === 'early';
+    const isQuiet = isInSilentHours(item.date, settings.silentHours.start, settings.silentHours.end);
+    if (item.date > now && (mustAlertForPrayer || !isQuiet)) plan.push(item);
   };
   const prayerKeys = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] as const;
   const labels = { fajr: t.prayerFajr, dhuhr: t.prayerDhuhr, asr: t.prayerAsr, maghrib: t.prayerMaghrib, isha: t.prayerIsha };
@@ -43,14 +46,21 @@ export function buildNotificationPlan(
     day.setDate(day.getDate() + d);
     day.setHours(0, 0, 0, 0);
     const key = localDateKey(day);
-    if (location && settings.notifications.prayerTimes) {
+    if (location && (settings.notifications.prayerTimes || settings.notifications.optionalPrayers)) {
       const times = calculatePrayerTimes(location.lat, location.lng, day);
-      for (const prayer of prayerKeys) {
-        add({ identifier: `prayer_${prayer}_${key}`, date: times[prayer], type: 'prayer', title: `🕌 ${labels[prayer]}`, body: t.notifPrayerTimes });
-        if (settings.notifications.earlyReminder) {
-          add({ identifier: `early_${prayer}_${key}`, date: new Date(times[prayer].getTime() - 600000), type: 'early',
-            title: `⏰ ${labels[prayer]}`, body: language === 'tr' ? 'Namaz vaktine 10 dakika kaldı.' : language === 'ar' ? 'بقيت عشر دقائق على الصلاة.' : 'Prayer begins in 10 minutes.' });
+      if (settings.notifications.prayerTimes) {
+        for (const prayer of prayerKeys) {
+          add({ identifier: `prayer_${prayer}_${key}`, date: times[prayer], type: 'prayer', title: `🕌 ${labels[prayer]}`, body: t.notifPrayerTimes });
+          if (settings.notifications.earlyReminder) {
+            add({ identifier: `early_${prayer}_${key}`, date: new Date(times[prayer].getTime() - 600000), type: 'early',
+              title: `⏰ ${labels[prayer]}`, body: language === 'tr' ? 'Namaz vaktine 10 dakika kaldı.' : language === 'ar' ? 'بقيت عشر دقائق على الصلاة.' : 'Prayer begins in 10 minutes.' });
+          }
         }
+      }
+      if (settings.notifications.optionalPrayers) {
+        const optional = optionalPrayerReminderTimes(times);
+        add({ identifier: `optional_ishraq_${key}`, date: optional.ishraq, type: 'optionalPrayer', title: `☀️ ${t.optionalIshraq}`, body: t.notifOptionalIshraqBody });
+        add({ identifier: `optional_awwabin_${key}`, date: optional.awwabin, type: 'optionalPrayer', title: `🌙 ${t.optionalAwwabin}`, body: t.notifOptionalAwwabinBody });
       }
     }
     const at = (hour: number) => { const date = new Date(day); date.setHours(hour); return date; };
