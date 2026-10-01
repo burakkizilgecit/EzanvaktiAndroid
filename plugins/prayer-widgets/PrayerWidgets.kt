@@ -1,6 +1,8 @@
 package com.islamicibadet.app.widget
 
 import android.app.AlarmManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -17,6 +19,8 @@ import android.os.SystemClock
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.ViewManager
@@ -87,6 +91,8 @@ open class PrayerWidgetBase : AppWidgetProvider() {
 class NextPrayerWidget : PrayerWidgetBase()
 
 object NativePrayerWidgets {
+  private const val PERSISTENT_CHANNEL = "daily_prayer_times_v1"
+  private const val PERSISTENT_NOTIFICATION = 4271
   private fun alarmIntent(context: Context) = PendingIntent.getBroadcast(context, 4201,
     Intent(context, PrayerWidget::class.java).setAction("com.islamicibadet.app.WIDGET_BOUNDARY"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
   private fun snapshot(context: Context): JSONObject? = try { JSONObject(context.getSharedPreferences("prayer_widgets", Context.MODE_PRIVATE).getString("snapshot", "") ?: "") } catch (_: Exception) { null }
@@ -98,8 +104,9 @@ object NativePrayerWidgets {
     val small=manager.getAppWidgetIds(ComponentName(context,NextPrayerWidget::class.java))
     val alarm=context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val pending=alarmIntent(context)
-    if(regular.isEmpty()&&small.isEmpty()) { alarm.cancel(pending); return }
     val data=snapshot(context)
+    val persistent=data?.optBoolean("persistentPrayerTimes",false)==true
+    if(regular.isEmpty()&&small.isEmpty()&&!persistent) { alarm.cancel(pending); updatePersistentNotification(context,null,null,null,0); return }
     val now=System.currentTimeMillis()
     val days=data?.optJSONArray("days")
     val allDays=(0 until (days?.length() ?: 0)).mapNotNull {days?.optJSONObject(it)}
@@ -111,6 +118,7 @@ object NativePrayerWidgets {
     val isDark=when(data?.optString("theme")) { "light" -> false; "dark" -> true; else -> context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES }
     regular.forEach { render(context,manager,it,false,data,today,next,isDark,now) }
     small.forEach { render(context,manager,it,true,data,today,next,isDark,now) }
+    updatePersistentNotification(context,if(persistent) data else null,today,next,now)
     alarm.cancel(pending)
     if(next!=null) {
       val midnight=Calendar.getInstance().apply {timeInMillis=now;add(Calendar.DAY_OF_YEAR,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}.timeInMillis
@@ -123,6 +131,45 @@ object NativePrayerWidgets {
         alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,pending)
       }
     }
+  }
+  private fun updatePersistentNotification(context:Context,s:JSONObject?,today:JSONObject?,next:JSONObject?,now:Long) {
+    val notifications=NotificationManagerCompat.from(context)
+    if(s==null||today==null) { notifications.cancel(PERSISTENT_NOTIFICATION); return }
+    if(Build.VERSION.SDK_INT>=26) {
+      val system=context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val channel=NotificationChannel(PERSISTENT_CHANNEL,s.optJSONObject("labels")?.optString("persistentTitle") ?: "Prayer times",NotificationManager.IMPORTANCE_LOW).apply {
+        description=s.optJSONObject("labels")?.optString("persistentTitle") ?: "Prayer times"
+        setSound(null,null);enableVibration(false);setShowBadge(false);lockscreenVisibility=android.app.Notification.VISIBILITY_PUBLIC
+      }
+      system.createNotificationChannel(channel)
+    }
+    val entries=today.optJSONArray("entries")
+    val list=(0 until (entries?.length() ?: 0)).mapNotNull { entries?.optJSONObject(it) }
+    if(list.isEmpty()) { notifications.cancel(PERSISTENT_NOTIFICATION); return }
+    fun item(entry:JSONObject):String {
+      val marker=when {
+        entry.optLong("at")==next?.optLong("at") -> "🟢"
+        entry.optLong("at")<=now -> "🟠"
+        else -> "⚪"
+      }
+      return "$marker ${entry.optString("label")} ${entry.optString("time")}"
+    }
+    val first=list.take(3).joinToString("  •  ") { item(it) }
+    val second=list.drop(3).joinToString("  •  ") { item(it) }
+    val nextIsToday=list.any { it.optLong("at")==next?.optLong("at") }
+    val tomorrow=if(next!=null&&!nextIsToday) "\n🟢 ${s.optJSONObject("labels")?.optString("tomorrow") ?: "Tomorrow"}: ${next.optString("label")} ${next.optString("time")}" else ""
+    val body=(if(second.isEmpty()) first else "$first\n$second")+tomorrow
+    val compact=if(next!=null) "🟢 ${next.optString("label")} ${next.optString("time")}" else first
+    val open=Intent(Intent.ACTION_VIEW,Uri.parse("islamicibadet://prayer-times"),context,com.islamicibadet.app.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val click=PendingIntent.getActivity(context,PERSISTENT_NOTIFICATION,open,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val title=s.optJSONObject("labels")?.optString("persistentTitle") ?: "Prayer times"
+    val notification=NotificationCompat.Builder(context,PERSISTENT_CHANNEL)
+      .setSmallIcon(R.drawable.notification_icon).setColor(Color.parseColor("#C8A853"))
+      .setContentTitle(title).setContentText(compact).setStyle(NotificationCompat.BigTextStyle().bigText(body))
+      .setContentIntent(click).setOngoing(true).setAutoCancel(false).setOnlyAlertOnce(true).setSilent(true)
+      .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setShowWhen(false).build()
+    try { notifications.notify(PERSISTENT_NOTIFICATION,notification) } catch (_: SecurityException) { }
   }
   private fun render(context: Context,manager:AppWidgetManager,id:Int,small:Boolean,s:JSONObject?,today:JSONObject?,next:JSONObject?,dark:Boolean,now:Long) {
     val views=RemoteViews(context.packageName,if(small) R.layout.prayer_widget_next else R.layout.prayer_widget_times)

@@ -2,6 +2,7 @@ import { usePrayerClock } from "../../hooks/use-prayer-clock";
 import {
   HomeHero,
   NextPrayerCard,
+  SecondaryLocationCard,
   QuickActions,
   PrayerTimesCard,
   DailyContentCard,
@@ -20,6 +21,7 @@ import {
   Modal,
   FlatList,
   Switch,
+  Platform,
 } from "react-native";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
@@ -29,11 +31,14 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { SPACING, RADIUS, FONT_SIZE } from "../../constants/theme";
 import { useTheme } from "../../context/ThemeContext";
-import { usePrayerStore } from "../../store/usePrayerStore";
+import {
+  EMPTY_PRAYER_COMPLETION,
+  usePrayerStore,
+} from "../../store/usePrayerStore";
 import { useNotificationStore } from "../../store/useNotificationStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useTranslation, type Language } from "../../i18n";
-import { getNextPrayer } from "../../services/prayerService";
+import { calculatePrayerTimes, getNextPrayer } from "../../services/prayerService";
 
 import { getDailyHadith } from "../../data/hadiths";
 import { getDailyDua } from "../../data/duas";
@@ -324,8 +329,9 @@ export default function HomeScreen() {
   const {
     prayerTimes,
     location,
+    secondaryLocation,
     togglePrayer,
-    getTodayCompletion,
+    removeSecondaryLocation,
     refreshLocation,
   } = usePrayerStore();
   const {
@@ -385,8 +391,15 @@ export default function HomeScreen() {
     prayerTimes && location
       ? getNextPrayer(prayerTimes, location.lat, location.lng, now)
       : null;
-  const completion = getTodayCompletion();
   const todayKey = localDateKey(now);
+  const secondaryPrayerTimes = secondaryLocation
+    ? calculatePrayerTimes(secondaryLocation.lat, secondaryLocation.lng, now)
+    : null;
+  // Subscribe to today's entry itself. This keeps this mounted tab in sync when
+  // another screen changes the completion state.
+  const completion = usePrayerStore(
+    (state) => state.completion[todayKey] ?? EMPTY_PRAYER_COMPLETION,
+  );
 
   useEffect(() => {
     generateDailyIfNeeded(hadithText, duaTitle);
@@ -696,6 +709,11 @@ export default function HomeScreen() {
                   icon: "weather-sunset-up",
                 },
                 {
+                  key: "persistentPrayerTimes",
+                  labelKey: "notifPersistentPrayerTimes",
+                  icon: "format-list-bulleted",
+                },
+                {
                   key: "dailyHadith",
                   labelKey: "notifDailyHadith",
                   icon: "format-quote-close",
@@ -711,7 +729,7 @@ export default function HomeScreen() {
                   icon: "circle-outline",
                 },
               ] as const
-            ).map((item, i, arr) => (
+            ).filter(item => item.key !== "persistentPrayerTimes" || Platform.OS === "android").map((item, i, arr) => (
               <View
                 key={item.key}
                 style={[
@@ -770,6 +788,13 @@ export default function HomeScreen() {
             next={nextPrayer}
             loading={loading}
             hasLocation={!!location}
+          />
+          <SecondaryLocationCard
+            location={secondaryLocation}
+            times={secondaryPrayerTimes}
+            onAdd={() => router.push({ pathname: '/select-location', params: { mode: 'secondary' } })}
+            onChange={() => router.push({ pathname: '/select-location', params: { mode: 'secondary' } })}
+            onRemove={() => removeSecondaryLocation().catch(console.warn)}
           />
           <QuickActions
             onQibla={() => router.push("/(tabs)/qibla")}

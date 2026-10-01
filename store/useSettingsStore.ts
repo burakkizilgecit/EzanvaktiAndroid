@@ -14,6 +14,7 @@ export interface AppSettings {
     dhikrReminder: boolean;
     islamicDays: boolean;
     optionalPrayers: boolean;
+    persistentPrayerTimes: boolean;
   };
   silentHours: { start: string; end: string };
   vibration: boolean;
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     dhikrReminder: true,
     islamicDays: true,
     optionalPrayers: false,
+    persistentPrayerTimes: false,
   },
   silentHours: { start: '22:00', end: '07:00' },
   vibration: true,

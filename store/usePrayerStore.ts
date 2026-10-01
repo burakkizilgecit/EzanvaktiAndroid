@@ -2,7 +2,7 @@ import { localDateKey } from '../services/dateService';
 import * as Location from 'expo-location';
 import { create } from 'zustand';
 import { PrayerTimesData, calculatePrayerTimes } from '../services/prayerService';
-import { saveData, loadData, STORAGE_KEYS } from '../services/storageService';
+import { saveData, loadData, removeData, STORAGE_KEYS } from '../services/storageService';
 import { findNearestCity } from '../data/turkishCities';
 import {
   OFFLINE_PRAYER_DAYS,
@@ -24,10 +24,12 @@ export interface PrayerCompletion {
 }
 
 type LocationSource = 'auto' | 'manual';
+export type PrayerLocation = { lat: number; lng: number; city: string };
 
 interface PrayerStore {
   prayerTimes: PrayerTimesData | null;
-  location: { lat: number; lng: number; city: string } | null;
+  location: PrayerLocation | null;
+  secondaryLocation: PrayerLocation | null;
   locationSource: LocationSource;
   locationLoading: boolean;
   locationError: boolean;
@@ -41,6 +43,8 @@ interface PrayerStore {
   setPrayerTimes: (times: PrayerTimesData) => void;
   setLocation: (lat: number, lng: number, city: string) => Promise<void>;
   setManualLocation: (lat: number, lng: number, city: string) => Promise<void>;
+  setSecondaryLocation: (lat: number, lng: number, city: string) => Promise<void>;
+  removeSecondaryLocation: () => Promise<void>;
   useAutoLocation: () => Promise<void>;
   togglePrayer: (dateKey: string, prayer: keyof PrayerCompletion[string]) => void;
   loadCompletion: () => Promise<void>;
@@ -49,7 +53,15 @@ interface PrayerStore {
 }
 
 const todayKey = () => localDateKey();
-const emptyDay = () => ({ fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false });
+export const EMPTY_PRAYER_COMPLETION: PrayerCompletion[string] = Object.freeze({
+  fajr: false,
+  dhuhr: false,
+  asr: false,
+  maghrib: false,
+  isha: false,
+});
+
+const emptyDay = (): PrayerCompletion[string] => ({ ...EMPTY_PRAYER_COMPLETION });
 
 let locationRequest: Promise<void> | null = null;
 
@@ -68,6 +80,7 @@ function withTimeout<T>(operation: Promise<T>, milliseconds: number): Promise<T>
 export const usePrayerStore = create<PrayerStore>((set, get) => ({
   prayerTimes: null,
   location: null,
+  secondaryLocation: null,
   locationSource: 'auto',
   locationLoading: true,
   locationError: false,
@@ -152,6 +165,17 @@ export const usePrayerStore = create<PrayerStore>((set, get) => ({
     set({ location, locationSource: 'manual', prayerTimes: times, prayerSchedule: schedule, lastPrayerUpdateAt: schedule.generatedAt, offlineDaysAvailable: getOfflineDaysAvailable(schedule), locationError: false, locationLoading: false });
   },
 
+  setSecondaryLocation: async (lat, lng, city) => {
+    const secondaryLocation = { lat, lng, city };
+    await saveData(STORAGE_KEYS.SECONDARY_LOCATION, secondaryLocation);
+    set({ secondaryLocation });
+  },
+
+  removeSecondaryLocation: async () => {
+    await removeData(STORAGE_KEYS.SECONDARY_LOCATION);
+    set({ secondaryLocation: null });
+  },
+
   useAutoLocation: async () => {
     const previousSource = get().locationSource;
     set({ locationSource: 'auto' });
@@ -175,10 +199,14 @@ export const usePrayerStore = create<PrayerStore>((set, get) => ({
   },
 
   loadLocation: async () => {
-    const [data, storedSchedule] = await Promise.all([
+    const [data, storedSchedule, secondaryLocation] = await Promise.all([
       loadData<{ lat: number; lng: number; city: string; source?: LocationSource }>(STORAGE_KEYS.LOCATION),
       loadData<PrayerScheduleCache>(STORAGE_KEYS.PRAYER_SCHEDULE),
+      loadData<PrayerLocation>(STORAGE_KEYS.SECONDARY_LOCATION),
     ]);
+    if (secondaryLocation && Number.isFinite(secondaryLocation.lat) && Number.isFinite(secondaryLocation.lng)) {
+      set({ secondaryLocation });
+    }
     if (data && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
       const location = { lat: data.lat, lng: data.lng, city: data.city };
       const reusable = scheduleMatchesLocation(storedSchedule, location) && getOfflineDaysAvailable(storedSchedule) >= 30;

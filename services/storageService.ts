@@ -24,5 +24,6 @@ export const STORAGE_KEYS = {
   ACHIEVEMENTS: 'achievements',
   STATISTICS: 'statistics',
   LOCATION: 'user_location',
+  SECONDARY_LOCATION: 'secondary_location',
   PRAYER_SCHEDULE: 'prayer_schedule_v1',
 };

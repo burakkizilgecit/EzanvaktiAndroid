@@ -44,6 +44,7 @@ interface SettingItem {
   labelKey: string;
   descKey: string;
   icon: string;
+  androidOnly?: boolean;
 }
 
 const NOTIFICATION_SETTINGS: SettingItem[] = [
@@ -54,6 +55,7 @@ const NOTIFICATION_SETTINGS: SettingItem[] = [
   { key: 'dhikrReminder', labelKey: 'notifDhikr',         descKey: 'notifDhikrDesc',         icon: 'circle-outline' },
   { key: 'islamicDays',   labelKey: 'notifIslamicDays',   descKey: 'notifIslamicDaysDesc',   icon: 'calendar-star' },
   { key: 'optionalPrayers', labelKey: 'notifOptionalPrayers', descKey: 'notifOptionalPrayersDesc', icon: 'weather-sunset-up' },
+  { key: 'persistentPrayerTimes', labelKey: 'notifPersistentPrayerTimes', descKey: 'notifPersistentPrayerTimesDesc', icon: 'format-list-bulleted', androidOnly: true },
 ];
 
 // ── Time Picker ──────────────────────────────────────────────────────────────
@@ -353,6 +355,7 @@ export default function SettingsScreen() {
 
   const currentTheme = settings.theme ?? 'dark';
   const currentFontSize = settings.fontSize ?? 'normal';
+  const visibleNotificationSettings = NOTIFICATION_SETTINGS.filter(item => !item.androidOnly || Platform.OS === 'android');
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -499,8 +502,8 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>{t('settingsNotifications')}</Text>
         <Text style={styles.sectionDesc}>{t('settingsNotificationsDesc')}</Text>
         <View style={styles.card}>
-          {NOTIFICATION_SETTINGS.map((item, i) => (
-            <View key={item.key} style={[styles.settingRow, i < NOTIFICATION_SETTINGS.length - 1 && styles.rowBorder]}>
+          {visibleNotificationSettings.map((item, i) => (
+            <View key={item.key} style={[styles.settingRow, i < visibleNotificationSettings.length - 1 && styles.rowBorder]}>
               <View style={styles.settingIcon}>
                 <MaterialCommunityIcons name={item.icon as any} size={20} color={colors.gold} />
               </View>

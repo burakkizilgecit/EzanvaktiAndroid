@@ -96,7 +96,7 @@ function RootLayoutInner() {
   useEffect(() => {
     const listener = addNotificationResponseListener(response => {
       const type = response.notification.request.content.data?.type;
-      if (type === 'prayer' || type === 'early' || type === 'optionalPrayer') router.push('/(tabs)/prayer-times');
+      if (type === 'prayer' || type === 'early' || type === 'optionalPrayer' || type === 'persistentPrayerTimes') router.push('/(tabs)/prayer-times');
       else if (type === 'dhikr') router.push('/(tabs)/dhikr');
       else if (type === 'dua') router.push('/(tabs)/duas');
       else if (type === 'islamicDay') router.push('/upcoming-events');

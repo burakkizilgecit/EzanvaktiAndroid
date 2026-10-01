@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, TextInput, ActivityIndicator, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { useTranslation } from '../i18n';
 import { SPACING, RADIUS, FONT_SIZE } from '../constants/theme';
@@ -15,12 +15,16 @@ export default function SelectLocationScreen() {
   const { colors, fs } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, fs), [colors, fs]);
   const router = useRouter();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const isSecondary = mode === 'secondary';
   const [search, setSearch] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<'denied' | 'deniedForever' | 'servicesOff' | 'failed' | null>(null);
   const location = usePrayerStore(s => s.location);
   const locationSource = usePrayerStore(s => s.locationSource);
+  const secondaryLocation = usePrayerStore(s => s.secondaryLocation);
   const setManualLocation = usePrayerStore(s => s.setManualLocation);
+  const setSecondaryLocation = usePrayerStore(s => s.setSecondaryLocation);
   const switchToGps = usePrayerStore(s => s.useAutoLocation);
 
   const filtered = useMemo(() => {
@@ -30,7 +34,8 @@ export default function SelectLocationScreen() {
   }, [search]);
 
   const handleSelect = (city: CityCoords) => {
-    setManualLocation(city.lat, city.lng, city.name).then(() => router.back());
+    const update = isSecondary ? setSecondaryLocation : setManualLocation;
+    update(city.lat, city.lng, city.name).then(() => router.back());
   };
 
   const handleUseGps = async () => {
@@ -64,7 +69,9 @@ export default function SelectLocationScreen() {
   };
 
   const renderCity = ({ item }: { item: CityCoords }) => {
-    const active = locationSource === 'manual' && location?.city === item.name;
+    const active = isSecondary
+      ? secondaryLocation?.city === item.name
+      : locationSource === 'manual' && location?.city === item.name;
     return (
       <TouchableOpacity style={[styles.cityRow, active && styles.cityRowActive]} onPress={() => handleSelect(item)} activeOpacity={0.75}>
         <MaterialCommunityIcons name="city-variant-outline" size={20} color={active ? colors.gold : colors.textMuted} />
@@ -81,11 +88,11 @@ export default function SelectLocationScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('selectLocationTitle')}</Text>
+        <Text style={styles.headerTitle}>{t(isSecondary ? 'secondaryLocationSelectTitle' : 'selectLocationTitle')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <Text style={styles.hint}>{t('selectLocationHint')}</Text>
+      <Text style={styles.hint}>{t(isSecondary ? 'secondaryLocationSelectHint' : 'selectLocationHint')}</Text>
 
       <View style={styles.searchRow}>
         <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: SPACING.xs }} />
@@ -103,11 +110,11 @@ export default function SelectLocationScreen() {
         )}
       </View>
 
-      <TouchableOpacity style={styles.gpsBtn} onPress={handleUseGps} activeOpacity={0.8} disabled={gpsLoading}>
+      {!isSecondary && <TouchableOpacity style={styles.gpsBtn} onPress={handleUseGps} activeOpacity={0.8} disabled={gpsLoading}>
         {gpsLoading ? <ActivityIndicator color={colors.gold} size="small" /> : <Ionicons name="locate" size={18} color={colors.gold} />}
         <Text style={styles.gpsBtnText}>{t('selectLocationUseGps')}</Text>
         {!gpsLoading && locationSource === 'auto' && <Ionicons name="checkmark-circle" size={16} color={colors.gold} />}
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       {gpsError && (
         <View style={styles.gpsErrorBox}>

@@ -38,6 +38,12 @@ const SLIDES: Slide[] = [
     desc: 'Sıradaki namaz vaktine geri sayım, günün hadisi ve duası, bugünkü namaz takibi — hepsi tek ekranda.',
   },
   {
+    id: '2a', type: 'regular', iconLib: 'ion', icon: 'location-outline',
+    accent: '#D4A84B',
+    title: 'İki Konumun Vakitleri',
+    desc: 'Mevcut konumunuzun yanında seçtiğiniz ikinci şehrin beş namaz vaktini ana sayfada aynı anda görün.',
+  },
+  {
     id: '3', type: 'regular', iconLib: 'mci', icon: 'clock-time-five-outline',
     accent: '#A78BFA',
     title: 'Namaz Vakitleri',
@@ -206,7 +212,7 @@ export default function TutorialScreen() {
       {(['normal', 'large', 'xlarge'] as const).map((size) => {
         const isSelected = selectedFont === size;
         const fontSize = size === 'normal' ? 20 : size === 'large' ? 28 : 36;
-        const label = size === 'normal' ? 'Standart' : size === 'large' ? 'Büyük' : 'Çok Büyük — Yaşlı Dostu';
+        const label = size === 'normal' ? 'Standart' : size === 'large' ? 'Büyük' : 'Çok Büyük';
         return (
           <TouchableOpacity
             key={size}

@@ -82,6 +82,7 @@ export function buildWidgetSnapshot(
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     language,
     theme: settings.theme ?? "system",
+    persistentPrayerTimes: settings.notifications.persistentPrayerTimes === true,
     city: valid
       ? location.city ||
         `${location.lat.toFixed(2)}, ${location.lng.toFixed(2)}`
@@ -93,6 +94,8 @@ export function buildWidgetSnapshot(
       refresh: text.widgetRefresh,
       today: text.widgetToday,
       upcoming: text.widgetUpcoming,
+      persistentTitle: text.persistentPrayerTitle,
+      tomorrow: text.persistentTomorrow,
     },
     reminder: settings.notifications.prayerTimes,
     watch: {

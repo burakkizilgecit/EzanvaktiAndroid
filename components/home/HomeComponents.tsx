@@ -24,9 +24,10 @@ import {
 import {
   formatPrayerTime,
   getCountdown,
+  calculatePrayerTimes,
   type PrayerTimesData,
 } from "../../services/prayerService";
-import { type PrayerCompletion } from "../../store/usePrayerStore";
+import { type PrayerCompletion, type PrayerLocation } from "../../store/usePrayerStore";
 import { useNow } from "../../hooks/use-now";
 import { LocationNotice } from "../LocationNotice";
 
@@ -41,6 +42,7 @@ const KEYS: PrayerKey[] = [
   "maghrib",
   "isha",
 ];
+const SECONDARY_KEYS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 const META = {
   fajr: { icon: "weather-night", label: "prayerFajr" },
   sunrise: { icon: "weather-sunset-up", label: "prayerSunrise" },
@@ -323,6 +325,98 @@ export function QuickActions({
           <Text style={styles.actionText}>{t(a.label)}</Text>
         </TouchableOpacity>
       ))}
+    </View>
+  );
+}
+
+function getNextSecondaryPrayer(
+  times: PrayerTimesData,
+  location: PrayerLocation,
+  now: Date,
+) {
+  const nextKey = SECONDARY_KEYS.find(key => times[key].getTime() > now.getTime());
+  if (nextKey) return { key: nextKey, time: times[nextKey] };
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    key: "fajr" as const,
+    time: calculatePrayerTimes(location.lat, location.lng, tomorrow).fajr,
+  };
+}
+
+export function SecondaryLocationCard({
+  location,
+  times,
+  onAdd,
+  onChange,
+  onRemove,
+}: {
+  location: PrayerLocation | null;
+  times: PrayerTimesData | null;
+  onAdd: () => void;
+  onChange: () => void;
+  onRemove: () => void;
+}) {
+  const { styles, colors, t, rtl } = useHome();
+  const now = useNow();
+
+  if (!location || !times) {
+    return (
+      <TouchableOpacity
+        style={[styles.card, styles.secondaryLocationAdd]}
+        onPress={onAdd}
+        accessibilityRole="button"
+        accessibilityLabel={t("secondaryLocationAdd")}
+      >
+        <Ionicons name="add-circle-outline" size={22} color={colors.gold} />
+        <Text style={styles.secondaryLocationAddText}>{t("secondaryLocationAdd")}</Text>
+        <Ionicons name={rtl ? "chevron-back" : "chevron-forward"} size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+    );
+  }
+
+  const next = getNextSecondaryPrayer(times, location, now);
+  const remaining = getCountdown(next.time, now.getTime()).slice(0, 5);
+
+  return (
+    <View style={[styles.card, styles.secondaryLocationCard]}>
+      <View style={styles.secondaryLocationHeader}>
+        <Ionicons name="location" size={20} color={colors.gold} />
+        <View style={styles.secondaryLocationHeading}>
+          <Text style={styles.secondaryLocationEyebrow}>{t("secondaryLocationTitle")}</Text>
+          <Text style={styles.secondaryLocationCity} numberOfLines={1}>{location.city}</Text>
+        </View>
+        <Text style={styles.secondaryLocationCountdown} numberOfLines={1}>
+          {t("secondaryLocationNextIn", { time: remaining })}
+        </Text>
+        <TouchableOpacity onPress={onChange} style={styles.secondaryLocationChange} accessibilityRole="button">
+          <Text style={styles.secondaryLocationChangeText}>{t("secondaryLocationChange")}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onRemove}
+          style={styles.secondaryLocationRemove}
+          accessibilityRole="button"
+          accessibilityLabel={t("secondaryLocationRemove")}
+        >
+          <Ionicons name="close" size={17} color={colors.textMuted} />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.secondaryPrayerRow}>
+        {SECONDARY_KEYS.map(key => {
+          const active = next.key === key;
+          return (
+            <View key={key} style={[styles.secondaryPrayerItem, active && styles.secondaryPrayerItemActive]}>
+              <MaterialCommunityIcons name={META[key].icon} size={17} color={active ? colors.gold : colors.textMuted} />
+              <Text style={[styles.secondaryPrayerName, active && { color: colors.gold }]} numberOfLines={1} adjustsFontSizeToFit>
+                {t(META[key].label)}
+              </Text>
+              <Text style={[styles.secondaryPrayerTime, active && { color: colors.gold }]} numberOfLines={1}>
+                {formatPrayerTime(times[key])}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -696,6 +790,64 @@ const makeStyles = (
       fontSize: fs(13),
       flexShrink: 1,
       textAlign: "center",
+    },
+    secondaryLocationAdd: {
+      minHeight: 52,
+      paddingHorizontal: 14,
+      flexDirection: rtl ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 9,
+    },
+    secondaryLocationAddText: {
+      flex: 1,
+      color: c.textPrimary,
+      fontSize: fs(13),
+      fontWeight: "600",
+      textAlign: rtl ? "right" : "left",
+    },
+    secondaryLocationCard: { paddingTop: 10 },
+    secondaryLocationHeader: {
+      minHeight: 40,
+      paddingHorizontal: 12,
+      paddingBottom: 8,
+      flexDirection: rtl ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 7,
+    },
+    secondaryLocationHeading: { flexShrink: 1, minWidth: 72 },
+    secondaryLocationEyebrow: { color: c.textSecondary, fontSize: fs(9), fontWeight: "600" },
+    secondaryLocationCity: { color: c.textPrimary, fontSize: fs(15), fontWeight: "700" },
+    secondaryLocationCountdown: {
+      flex: 1,
+      color: c.textSecondary,
+      fontSize: fs(10),
+      textAlign: "center",
+      writingDirection: rtl ? "rtl" : "ltr",
+    },
+    secondaryLocationChange: { minHeight: 36, justifyContent: "center", paddingHorizontal: 3 },
+    secondaryLocationChangeText: { color: c.gold, fontSize: fs(10), fontWeight: "600" },
+    secondaryLocationRemove: { width: 32, height: 36, alignItems: "center", justifyContent: "center" },
+    secondaryPrayerRow: {
+      flexDirection: rtl ? "row-reverse" : "row",
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: c.cardBorder,
+    },
+    secondaryPrayerItem: {
+      flex: 1,
+      minWidth: 0,
+      paddingVertical: 7,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 1,
+    },
+    secondaryPrayerItemActive: { backgroundColor: c.goldGlow },
+    secondaryPrayerName: { color: c.textSecondary, fontSize: fs(9), maxWidth: "96%" },
+    secondaryPrayerTime: {
+      color: c.textPrimary,
+      fontSize: fs(11),
+      fontWeight: "700",
+      fontVariant: ["tabular-nums"],
+      writingDirection: "ltr",
     },
     cardHeader: {
       flexDirection: rtl ? "row-reverse" : "row",

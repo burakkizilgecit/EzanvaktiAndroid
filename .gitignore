@@ -46,6 +46,7 @@ app-example
 .android-build-home/
 .android-user-home/
 .gradle-user-home/
+.gradle-agent/
 .idea/
 .npm-cache-eas/
 .expo-export-check/

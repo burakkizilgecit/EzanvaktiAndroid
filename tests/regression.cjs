@@ -135,6 +135,26 @@ test('Android widgets refresh at prayer boundaries, midnight and periodic launch
   assert.match(plugin, /targetCellWidth: 4, targetCellHeight: 2/);
   assert.match(kotlin, /WIDGET_CATEGORY_KEYGUARD/);
   assert.match(kotlin, /!onKeyguard \|\| it\.optString\("key"\)!="sunrise"/);
+  assert.match(kotlin, /persistentPrayerTimes/);
+  assert.match(kotlin, /NotificationCompat\.CATEGORY_STATUS/);
+  assert.match(kotlin, /"🟢"/);
+  assert.match(kotlin, /"🟠"/);
+  assert.match(kotlin, /setOngoing\(true\)/);
+});
+
+test('persistent prayer notification is Android-only and opt-in', () => {
+  const env=environment();
+  const {buildWidgetSnapshot}=env.load('widgets/widgetSnapshot.ts');
+  const {DEFAULT_SETTINGS}=env.load('store/useSettingsStore.ts');
+  const location={lat:40.7654,lng:29.9408,city:'Kocaeli'};
+  assert.equal(buildWidgetSnapshot(location,DEFAULT_SETTINGS).persistentPrayerTimes,false);
+  const enabled={...DEFAULT_SETTINGS,notifications:{...DEFAULT_SETTINGS.notifications,persistentPrayerTimes:true}};
+  const snapshot=buildWidgetSnapshot(location,enabled);
+  assert.equal(snapshot.persistentPrayerTimes,true);
+  assert.equal(snapshot.labels.persistentTitle,'Bugünün Namaz Vakitleri');
+  const settingsScreen=fs.readFileSync(path.join(root,'app','settings.tsx'),'utf8');
+  assert.match(settingsScreen,/androidOnly:\s*true/);
+  assert.match(settingsScreen,/Platform\.OS === 'android'/);
 });
 
 test('Wear OS uses a separate Play artifact and a unique form-factor version code', () => {
@@ -159,6 +179,9 @@ test('home quick settings expose the optional prayer notification toggle', () =>
   const home = fs.readFileSync(path.join(root, 'app', '(tabs)', 'index.tsx'), 'utf8');
   assert.match(home, /key: "optionalPrayers"/);
   assert.match(home, /labelKey: "notifOptionalPrayers"/);
+  assert.match(home, /key: "persistentPrayerTimes"/);
+  assert.match(home, /labelKey: "notifPersistentPrayerTimes"/);
+  assert.match(home, /persistentPrayerTimes" \|\| Platform\.OS === "android"/);
 });
 
 test('Turkey calculation method stays within two minutes of official Diyanet city fixtures', () => {
@@ -348,6 +371,43 @@ test('prayer store refreshes times after overnight suspension', async () => {
   assert.equal(store.getState().prayerTimes.dhuhr.getDate(), 15);
 });
 
+test('prayer completion subscribers update immediately across screens', () => {
+  const env = environment();
+  const store = env.load('store/usePrayerStore.ts').usePrayerStore;
+  const snapshots = [];
+  const unsubscribe = store.subscribe(state => snapshots.push(state.completion));
+
+  store.getState().togglePrayer('2026-09-14', 'dhuhr');
+
+  unsubscribe();
+  assert.equal(store.getState().completion['2026-09-14'].dhuhr, true);
+  assert.equal(snapshots.at(-1)['2026-09-14'].dhuhr, true);
+});
+
+test('secondary location persists, reloads and can be removed independently', async () => {
+  const env = environment();
+  const store = env.load('store/usePrayerStore.ts').usePrayerStore;
+  await store.getState().setSecondaryLocation(39.9334, 32.8597, 'Ankara');
+  assert.equal(store.getState().secondaryLocation.city, 'Ankara');
+  assert.equal(JSON.parse(env.stored.get('secondary_location')).city, 'Ankara');
+
+  store.setState({ secondaryLocation: null });
+  await store.getState().loadLocation();
+  assert.equal(store.getState().secondaryLocation.city, 'Ankara');
+
+  await store.getState().removeSecondaryLocation();
+  assert.equal(store.getState().secondaryLocation, null);
+  assert.equal(env.stored.has('secondary_location'), false);
+});
+
+test('home places multi-location card before quick actions and tutorial copy is current', () => {
+  const home = fs.readFileSync(path.join(root, 'app', '(tabs)', 'index.tsx'), 'utf8');
+  const tutorial = fs.readFileSync(path.join(root, 'app', 'tutorial.tsx'), 'utf8');
+  assert.ok(home.indexOf('<SecondaryLocationCard') < home.indexOf('<QuickActions'));
+  assert.match(tutorial, /İki Konumun Vakitleri/);
+  assert.doesNotMatch(tutorial, /Yaşlı Dostu/);
+});
+
 test('changing prayer sound preserves religious-day and independent reminders', async () => {
   const env = environment();
   env.setTime(new Date(2026, 0, 1, 12));
@@ -438,6 +498,7 @@ test('old settings receive defaults for newly introduced notification fields', (
   assert.equal(normalizeSettings({ settingsVersion: 2, notificationSound: 'ezan' }).notificationSound, 'ezan');
   assert.equal(normalizeSettings({ notificationSound: 'ilahi' }).notificationSound, 'ilahi');
   assert.equal(result.notifications.optionalPrayers, false);
+  assert.equal(result.notifications.persistentPrayerTimes, false);
 });
 
 test('voluntary prayer windows are approximate and reminders remain opt-in', () => {

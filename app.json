@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.islamicibadet.app",
-      "versionCode": 54,
+      "versionCode": 56,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyC__fpddD5_gO__BBU54BIJZWWMU-ACkys"

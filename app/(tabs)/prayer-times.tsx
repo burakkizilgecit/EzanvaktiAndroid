@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { SPACING, RADIUS, FONT_SIZE } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
-import { usePrayerStore } from '../../store/usePrayerStore';
+import { EMPTY_PRAYER_COMPLETION, usePrayerStore } from '../../store/usePrayerStore';
 import { formatPrayerTime, getNextPrayer } from '../../services/prayerService';
 import { formatGregorianDate } from '../../services/hijriService';
 import { useTranslation } from '../../i18n';
@@ -147,7 +147,7 @@ export default function PrayerTimesScreen() {
   const { colors, fs } = useTheme();
   const {
     prayerTimes, location, locationSource, lastPrayerUpdateAt, offlineDaysAvailable,
-    getPrayerTimesForDate, togglePrayer, getTodayCompletion,
+    getPrayerTimesForDate, togglePrayer,
   } = usePrayerStore();
   const [chosenDate, setSelectedDate] = useState<Date | null>(null);
   const [infoModal, setInfoModal] = useState<{ key: string; info: PrayerInfo } | null>(null);
@@ -157,7 +157,11 @@ export default function PrayerTimesScreen() {
   const today = localDateKey(now);
   const selectedDate = React.useMemo(() => chosenDate ?? new Date(today + 'T12:00:00'), [chosenDate, today]);
   const todayKey = localDateKey(now);
-  const completion = getTodayCompletion();
+  // Read the concrete date entry through a selector so changes made from the
+  // home tab are reflected as soon as this tab is shown.
+  const completion = usePrayerStore(
+    state => state.completion[todayKey] ?? EMPTY_PRAYER_COMPLETION,
+  );
   const nextPrayer = prayerTimes && location ? getNextPrayer(prayerTimes, location.lat, location.lng) : null;
   const PRAYER_LABEL_KEYS: Record<string, string> = {
     fajr: 'prayerFajr', sunrise: 'prayerSunrise', dhuhr: 'prayerDhuhr',
